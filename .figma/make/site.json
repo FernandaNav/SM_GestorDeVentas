@@ -1,0 +1,10 @@
+{
+  "description": "Gestione ventas, servicios y comisiones de una tienda de motocicletas con un sistema simple y visual para administradores y empleados en Quetzaltenango.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
