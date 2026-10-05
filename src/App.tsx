@@ -1,8 +1,16 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton, type IconName } from "./components/ui";
+import { type DateRange, type Granularity, DatePicker, DateRangePicker, MonthPicker, PeriodStepper, addDays, addMonths, fmtDayMonth, fmtLongDay, fmtMonth, fmtMonthShort, fmtRange, fmtRangeLong, periodLabel, periodRange, presetRange, previousRange, shiftPeriod, startOfDay, startOfMonth } from "./components/dates";
 import logo from "./imports/solomotos-logo.png";
 
 type Role = "Administrador" | "Empleado";
+type Accent = "orange" | "burgundy" | "navy";
+
+const ACCENTS: { id: Accent; label: string; note: string; swatch: string }[] = [
+  { id: "orange", label: "Naranja", note: "Color actual", swatch: "#ef4b23" },
+  { id: "burgundy", label: "Burgundy", note: "Rojo vino", swatch: "#8c1d3a" },
+  { id: "navy", label: "Azul marino", note: "Azul oscuro", swatch: "#1f4e8c" },
+];
 type Screen = "home" | "dashboard" | "sale" | "history" | "workshop" | "commissions" | "stats" | "expenses" | "sellers" | "closing" | "settings" | "invoice";
 
 const adminNav: { id: Screen; label: string; icon: IconName }[] = [
@@ -76,8 +84,35 @@ function Sidebar({ active, role, onNavigate }: { active: Screen; role: Role; onN
 
 // ─── header ─────────────────────────────────────────────────────────────────
 
+// Fecha actual; se refresca cada minuto para que cambie sola al pasar la medianoche
+function useToday() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const LONG_DATE = new Intl.DateTimeFormat("es-GT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const SHORT_DATE = new Intl.DateTimeFormat("es-GT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const SALE_DATE = new Intl.DateTimeFormat("es-GT", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+const SALE_TIME = new Intl.DateTimeFormat("es-GT", { hour: "2-digit", minute: "2-digit", hour12: false });
+
 function Header({ screen, role, dark, onToggleDark, onLogout }: { screen: Screen; role: Role; dark: boolean; onToggleDark: () => void; onLogout: () => void }) {
-  return <header className="topbar"><div><div className="page-kicker">SoloMotos / {names[screen]}</div><div className="page-title">{names[screen]}</div></div><div className="top-actions"><div className="date-pill"><Icon name="calendar" size="sm" /> Lunes, 14 de septiembre de 2026</div><IconButton icon="bell" label="Notificaciones" /><IconButton icon={dark ? "sun" : "moon"} label={dark ? "Tema claro" : "Tema oscuro"} onClick={onToggleDark} /><div className="user-menu"><div className="avatar"><Icon name="users" size="sm" /></div><div><strong>{role}</strong></div></div><IconButton icon="logout" label="Cerrar sesión" onClick={onLogout} /></div></header>;
+  const today = useToday();
+  const longDate = capitalize(LONG_DATE.format(today));
+  return <header className="topbar">
+    <div className="topbar-heading"><div className="page-kicker">SoloMotos / {names[screen]}</div><div className="page-title" title={names[screen]}>{names[screen]}</div></div>
+    <div className="top-actions">
+      <div className="date-pill" title={longDate}><Icon name="calendar" size="sm" /><span className="date-long">{longDate}</span><span className="date-short">{capitalize(SHORT_DATE.format(today))}</span></div>
+      <IconButton icon="bell" label="Notificaciones" />
+      <IconButton icon={dark ? "sun" : "moon"} label={dark ? "Tema claro" : "Tema oscuro"} onClick={onToggleDark} />
+      <div className="user-menu" title={role}><div className="avatar"><Icon name="users" size="sm" /></div><div className="user-menu-name"><strong>{role}</strong></div></div>
+      <IconButton icon="logout" label="Cerrar sesión" onClick={onLogout} />
+    </div>
+  </header>;
 }
 
 // ─── kpi card ───────────────────────────────────────────────────────────────
@@ -89,6 +124,9 @@ function KpiCard({ icon, label, value, foot, tone = "dark" }: { icon: IconName; 
 // ─── dashboard ──────────────────────────────────────────────────────────────
 
 function Dashboard({ onNewSale }: { onNewSale: () => void }) {
+  // Solo dos opciones fijas: un combobox es lo más directo
+  const [sellerMonth, setSellerMonth] = useState("Este mes");
+  const sellerMonthLabel = fmtMonth(addMonths(new Date(), sellerMonth === "Este mes" ? 0 : -1));
   return <div className="screen-stack">
     <div className="hero-row"><div><div className="section-title">Buenos días</div><div className="muted">Este es el resumen de tu negocio al día de hoy.</div></div><Button icon="plus" onClick={onNewSale}>Nueva venta</Button></div>
     <div className="kpi-grid">
@@ -99,7 +137,7 @@ function Dashboard({ onNewSale }: { onNewSale: () => void }) {
       <KpiCard icon="file" label="Facturas emitidas" value="148 / 200" foot="74% del límite mensual" tone="green" />
     </div>
     <div className="dashboard-grid">
-      <Card className="chart-card"><div className="card-heading"><div><div className="card-title">Ventas por vendedor</div><div className="muted small">Septiembre 2026 · monto vendido</div></div><Select value="Este mes" options={["Este mes", "Mes anterior"]} /></div>
+      <Card className="chart-card"><div className="card-heading"><div><div className="card-title">Ventas por vendedor</div><div className="muted small">{sellerMonthLabel} · monto vendido</div></div><Select value={sellerMonth} options={["Este mes", "Mes anterior"]} onChange={setSellerMonth} /></div>
         <div className="bar-chart"><div className="y-axis"><span>Q 120k</span><span>Q 80k</span><span>Q 40k</span><span>Q 0</span></div><div className="bars"><div className="bar-group"><span className="bar bar-one" /><strong>Q 112,450</strong><small>María</small></div><div className="bar-group"><span className="bar bar-two" /><strong>Q 98,700</strong><small>Carlos</small></div><div className="bar-group"><span className="bar bar-three" /><strong>Q 73,500</strong><small>José</small></div></div></div>
         <div className="chart-summary"><span><i className="dot orange" /> 31 ventas totales</span><span>Ticket promedio <strong>Q 9,182.26</strong></span></div>
       </Card>
@@ -234,6 +272,9 @@ function SaleSuccess({ total, onNewSale, onHistory }: { total: number; onNewSale
 
 function NewSale({ role, onHistory }: { role: Role; onHistory: () => void }) {
   const isAdmin = role === "Administrador";
+  // Solo lectura a propósito: la hora la pone el sistema (RNF 3.2), no se elige con calendario
+  const now = useToday();
+  const saleTimestamp = `${capitalize(SALE_DATE.format(now))} · ${SALE_TIME.format(now)}`;
   const [items, setItems] = useState<SaleItem[]>(INITIAL_ITEMS);
   const [seller, setSeller] = useState("María López");
   const [payment, setPayment] = useState("Tarjeta");
@@ -285,7 +326,7 @@ function NewSale({ role, onHistory }: { role: Role; onHistory: () => void }) {
           <div className="field">
             <span className="field-label">Fecha y hora</span>
             <div className="readonly-datetime">
-              <strong>Lunes 14/09/2026 · 10:42</strong>
+              <strong>{saleTimestamp}</strong>
               <small>Hora registrada por el sistema</small>
             </div>
           </div>
@@ -394,6 +435,7 @@ function History({ role, onInvoice }: { role: Role; onInvoice: () => void }) {
   const isAdmin = role === "Administrador";
   const [rows, setRows] = useState<HistorySale[]>(HISTORY_ROWS);
   const [assignTarget, setAssignTarget] = useState<HistorySale | null>(null);
+  const [range, setRange] = useState<DateRange>(() => presetRange("Últimos 30 días"));
 
   const handleAssign = (pct: string) => {
     if (!assignTarget) return;
@@ -415,7 +457,7 @@ function History({ role, onInvoice }: { role: Role; onInvoice: () => void }) {
 
     {isAdmin && <Card className="history-filters">
       <TextInput placeholder="Buscar por producto, vendedor..." icon="search" />
-      <Select value="Últimos 30 días" options={["Hoy", "Esta semana", "Últimos 30 días", "Este mes", "Rango personalizado"]} />
+      <DateRangePicker value={range} onChange={setRange} />
       <Select value="Todos los vendedores" options={["Todos los vendedores", "María López", "Carlos Pérez", "José Méndez"]} />
       <Select value="Todas las categorías" options={["Todas las categorías", "Moto nueva", "Moto usada", "Accesorio", "Repuesto", "Otro"]} />
       <Select value="Cualquier pago" options={["Cualquier pago", "Efectivo", "Transferencia", "Tarjeta"]} />
@@ -706,6 +748,9 @@ const COMM_ROWS: CommRow[] = [
 function Commissions() {
   const [rows, setRows] = useState<CommRow[]>(COMM_ROWS);
   const [assignTarget, setAssignTarget] = useState<CommRow | null>(null);
+  const [seller, setSeller] = useState("María López");
+  // RF 3.3: comisiones por vendedor en un rango de fechas libre
+  const [range, setRange] = useState<DateRange>(() => presetRange("Este mes"));
 
   const handleAssign = (pct: string) => {
     if (!assignTarget) return;
@@ -717,7 +762,7 @@ function Commissions() {
   return <div className="screen-stack">
     <div className="hero-row">
       <div><div className="section-title">Comisiones por vendedor</div><div className="muted">Consulta el rendimiento y las comisiones generadas.</div></div>
-      <div className="inline-filters"><Select value="María López" options={["María López", "Carlos Pérez", "José Méndez"]} /><Select value="Septiembre 2026" options={["Septiembre 2026", "Agosto 2026"]} /></div>
+      <div className="inline-filters"><Select value={seller} options={ACTIVE_SELLERS} onChange={setSeller} /><DateRangePicker value={range} onChange={setRange} align="right" /></div>
     </div>
     <div className="comm-kpis">
       <Card><span>Total vendido</span><strong>Q 112,450.00</strong><small>12 ventas</small></Card>
@@ -726,7 +771,7 @@ function Commissions() {
       <Card className="comm-pending-kpi"><span>Comisiones pendientes</span><strong>1</strong><small>Por asignar</small></Card>
     </div>
     <Card>
-      <div className="card-heading"><div className="card-title">Detalle de ventas — María López</div><Button variant="secondary" icon="download">Exportar</Button></div>
+      <div className="card-heading"><div><div className="card-title">Detalle de ventas — {seller}</div><div className="muted small">{fmtRangeLong(range)}</div></div><Button variant="secondary" icon="download">Exportar</Button></div>
       <div className="table-wrap"><table>
         <thead><tr><th>Fecha</th><th>Producto</th><th>Categoría</th><th>Pago</th><th>Monto</th><th>Comisión %</th><th>Comisión Q</th></tr></thead>
         <tbody>{rows.map((r) => <tr key={r.id}>
@@ -755,20 +800,47 @@ const VG_DATA = [
 
 function Stats() {
   const [tab, setTab] = useState("Ventas");
-  const [periodo, setPeriodo] = useState("Mensual");
+  const [periodo, setPeriodo] = useState<Granularity | "Personalizado">("Mensual");
+  // RF 4.1/4.2: se elige la granularidad y luego se navega libremente entre períodos o se usa un rango propio
+  const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
+  const [customRange, setCustomRange] = useState<DateRange>(() => presetRange("Últimos 30 días"));
   const [pago, setPago] = useState("Todos");
   const [vendedor, setVendedor] = useState("Todos");
   const [categoria, setCategoria] = useState("Todas");
   const [comparar, setComparar] = useState(true);
   const maxVG = Math.max(...VG_DATA.map(d => d.v));
 
+  const today = startOfDay(new Date());
+  const isCustom = periodo === "Personalizado";
+  const range = isCustom ? customRange : periodRange(periodo, anchor);
+  const label = isCustom ? fmtRange(customRange) : periodLabel(periodo, anchor);
+  const prevLabel = isCustom || periodo === "Diario" ? fmtRange(previousRange(range)) : periodLabel(periodo, shiftPeriod(periodo, anchor, -1));
+  const seriesUnit = periodo === "Diario" ? "ventas por hora" : periodo === "Anual" ? "ventas mensuales" : "ventas diarias";
+  const rangeDays = Math.round((range.end.getTime() - range.start.getTime()) / 86_400_000);
+  const axisLabels = periodo === "Diario" ? ["8:00", "10:00", "12:00", "14:00", "16:00", "18:00"]
+    : periodo === "Anual" ? [0, 2, 4, 6, 8, 10].map((m) => fmtMonthShort(new Date(range.start.getFullYear(), m, 1)))
+    : [0, 1, 2, 3, 4].map((i) => fmtDayMonth(addDays(range.start, Math.round(i * rangeDays / 4))));
+  // Tendencia de 6 meses que termina en el mes del período elegido
+  const trendMonths = VG_DATA.map((_, i) => addMonths(startOfMonth(range.end), i - (VG_DATA.length - 1)));
+  const currentMonth = startOfMonth(today);
+  const trendIncludesCurrent = trendMonths.some((m) => m.getTime() === currentMonth.getTime());
+  const trendTitle = trendMonths[0].getFullYear() === trendMonths[5].getFullYear()
+    ? `${fmtMonth(trendMonths[0]).split(" ")[0]} – ${fmtMonth(trendMonths[5])}`
+    : `${fmtMonth(trendMonths[0])} – ${fmtMonth(trendMonths[5])}`;
+
   return <div className="screen-stack">
     <Card className="report-filters">
-      <div><div className="field-label">Período</div><Segmented options={["Diario","Semanal","Mensual","Anual"]} value={periodo} onChange={setPeriodo} /></div>
+      <div>
+        <div className="field-label">Período</div>
+        <Segmented options={["Diario", "Semanal", "Mensual", "Anual", "Personalizado"]} value={periodo} onChange={(v) => setPeriodo(v as Granularity | "Personalizado")} />
+        {isCustom
+          ? <div className="period-range-row"><DateRangePicker value={customRange} onChange={setCustomRange} /></div>
+          : <PeriodStepper label={label} onPrev={() => setAnchor(shiftPeriod(periodo, anchor, -1))} onNext={() => setAnchor(shiftPeriod(periodo, anchor, 1))} nextDisabled={periodRange(periodo, shiftPeriod(periodo, anchor, 1)).start > today} onReset={() => setAnchor(today)} resetDisabled={range.start <= today && today <= range.end} />}
+      </div>
       <Select label="Pago" value={pago} options={["Todos","Efectivo","Transferencia","Tarjeta"]} onChange={setPago} />
       <Select label="Vendedor" value={vendedor} options={["Todos","María López","Carlos Pérez","José Méndez"]} onChange={setVendedor} />
       <Select label="Categoría" value={categoria} options={["Todas","Moto nueva","Moto usada","Accesorio","Repuesto","Otro"]} onChange={setCategoria} />
-      <Toggle checked={comparar} onChange={setComparar} label="Comparar con período anterior" />
+      <Toggle checked={comparar} onChange={setComparar} label={`Comparar con ${prevLabel}`} />
     </Card>
 
     <div className="stats-tabs">
@@ -777,15 +849,15 @@ function Stats() {
 
     {tab === "Ventas" && <div className="screen-stack">
       <div className="kpi-grid">
-        <KpiCard icon="cash" label="Total vendido" value="Q 284,650.00" foot="+8.2% vs. ago." tone="orange" />
-        <KpiCard icon="trending" label="Ticket promedio" value="Q 9,182.26" foot="+3.4% vs. ago." tone="blue" />
-        <KpiCard icon="history" label="Transacciones" value="31" foot="+5 vs. ago." tone="purple" />
+        <KpiCard icon="cash" label="Total vendido" value="Q 284,650.00" foot="+8.2% vs. período anterior" tone="orange" />
+        <KpiCard icon="trending" label="Ticket promedio" value="Q 9,182.26" foot="+3.4% vs. período anterior" tone="blue" />
+        <KpiCard icon="history" label="Transacciones" value="31" foot="+5 vs. período anterior" tone="purple" />
         <KpiCard icon="file" label="Facturas emitidas" value="148" foot="74% del límite" tone="green" />
       </div>
       <Card className="chart-card wide">
         <div className="card-heading">
-          <div><div className="card-title">Ventas en el tiempo</div><div className="muted small">Septiembre 2026 · ventas diarias</div></div>
-          {comparar && <div className="legend"><span><i className="dot orange" /> Sep 2026</span><span><i className="dot gray" /> Ago 2026</span></div>}
+          <div><div className="card-title">Ventas en el tiempo</div><div className="muted small">{label} · {seriesUnit}</div></div>
+          {comparar && <div className="legend"><span><i className="dot orange" /> {label}</span><span><i className="dot gray" /> {prevLabel}</span></div>}
         </div>
         <div className="line-chart tall">
           <div className="grid-lines"><span/><span/><span/><span/></div>
@@ -794,13 +866,13 @@ function Stats() {
             <path className="sales-path" d="M0 180 C80 155 120 170 190 130 S300 110 380 120 S500 60 590 80 S710 35 800 45"/>
             {comparar && <path className="expense-path" d="M0 190 C80 175 120 168 190 155 S300 130 380 140 S500 110 590 120 S710 85 800 95"/>}
           </svg>
-          <div className="x-labels"><span>1 Sep</span><span>4 Sep</span><span>7 Sep</span><span>10 Sep</span><span>14 Sep</span></div>
+          <div className="x-labels">{axisLabels.map((l) => <span key={l}>{l}</span>)}</div>
         </div>
       </Card>
     </div>}
 
     {tab === "Vendedores" && <Card className="chart-card wide">
-      <div className="card-heading"><div><div className="card-title">Ventas por vendedor</div><div className="muted small">Septiembre 2026 · monto vendido</div></div></div>
+      <div className="card-heading"><div><div className="card-title">Ventas por vendedor</div><div className="muted small">{label} · monto vendido</div></div></div>
       <div className="bar-chart">
         <div className="y-axis"><span>Q 120k</span><span>Q 80k</span><span>Q 40k</span><span>Q 0</span></div>
         <div className="bars">
@@ -813,7 +885,7 @@ function Stats() {
     </Card>}
 
     {tab === "Categorías" && <Card className="chart-card wide">
-      <div className="card-heading"><div><div className="card-title">Ventas por categoría</div><div className="muted small">Septiembre 2026</div></div></div>
+      <div className="card-heading"><div><div className="card-title">Ventas por categoría</div><div className="muted small">{label}</div></div></div>
       <div className="donut-layout">
         <div className="donut"><div><strong>Q 284k</strong><span>Total</span></div></div>
         <div className="donut-legend">
@@ -827,26 +899,26 @@ function Stats() {
 
     {tab === "Ventas vs. gastos" && <Card className="chart-card wide">
       <div className="card-heading">
-        <div><div className="card-title">Ventas vs. gastos</div><div className="muted small">Abril – Septiembre 2026</div></div>
+        <div><div className="card-title">Ventas vs. gastos</div><div className="muted small">{trendTitle}</div></div>
         <div className="legend"><span><i className="dot orange" /> Ventas</span><span><i className="dot gray" /> Gastos</span></div>
       </div>
       <div className="vg-bars">
-        {VG_DATA.map(d => <div className="vg-col" key={d.m}>
+        {VG_DATA.map((d, i) => <div className="vg-col" key={d.m}>
           <div className="vg-bar-pair">
             <div className="vg-bar orange" style={{ height: `${(d.v / maxVG) * 100}%` }}><span className="vg-val">Q {d.v}k</span></div>
             <div className="vg-bar gray" style={{ height: `${(d.g / maxVG) * 100}%` }}><span className="vg-val">Q {d.g}k</span></div>
           </div>
-          <span className="vg-month">{d.m}</span>
+          <span className="vg-month">{fmtMonthShort(trendMonths[i])}{trendMonths[i].getTime() === currentMonth.getTime() ? "*" : ""}</span>
         </div>)}
       </div>
-      <div className="muted small" style={{ textAlign: "right", marginTop: "0.5rem" }}>* Septiembre parcial al 14 sep</div>
+      {trendIncludesCurrent && <div className="muted small" style={{ textAlign: "right", marginTop: "0.5rem" }}>* {fmtMonth(today).split(" ")[0]} parcial al {fmtDayMonth(today)}</div>}
     </Card>}
 
     {tab === "Taller" && <div className="screen-stack">
       <div className="kpi-grid">
         <KpiCard icon="wrench" label="Órdenes activas" value="4" foot="2 listas para entregar" tone="orange" />
         <KpiCard icon="cash" label="Ingresos taller (mes)" value="Q 14,200.00" foot="3 órdenes cobradas" tone="blue" />
-        <KpiCard icon="trending" label="Órdenes completadas" value="8" foot="Septiembre 2026" tone="purple" />
+        <KpiCard icon="trending" label="Órdenes completadas" value="8" foot={label} tone="purple" />
       </div>
       <Card>
         <div className="card-title">Órdenes por mecánico</div>
@@ -867,12 +939,15 @@ function Stats() {
 // ─── expenses ────────────────────────────────────────────────────────────────
 
 function Expenses() {
+  // Un gasto puede ser de días anteriores (factura que llegó tarde), pero nunca futuro
+  const [expenseDate, setExpenseDate] = useState(() => startOfDay(new Date()));
+  const [month, setMonth] = useState(() => startOfMonth(new Date()));
   return <div className="split-layout">
     <Card className="form-card">
       <div className="card-title">Registrar compra o gasto</div>
       <div className="muted small">Agrega una compra o gasto operativo.</div>
       <div className="vertical-form">
-        <TextInput label="Fecha" value="14/09/2026" icon="calendar" />
+        <DatePicker label="Fecha" value={expenseDate} onChange={setExpenseDate} max={new Date()} />
         <TextInput label="Monto" placeholder="Q 0.00" />
         <Select label="Categoría" options={["Servicios", "Repuestos", "Renta", "Planilla", "Otros"]} />
         <TextArea label="Descripción" placeholder="Detalle del gasto" />
@@ -881,8 +956,8 @@ function Expenses() {
     </Card>
     <Card>
       <div className="card-heading">
-        <div><div className="card-title">Gastos registrados</div><div className="muted small">Total del mes: Q 48,320.00</div></div>
-        <Select value="Septiembre 2026" options={["Septiembre 2026", "Agosto 2026"]} />
+        <div><div className="card-title">Gastos registrados</div><div className="muted small">Total de {fmtMonth(month).split(" ")[0].toLowerCase()}: Q 48,320.00</div></div>
+        <MonthPicker value={month} onChange={setMonth} />
       </div>
       <div className="table-wrap">
         <table>
@@ -978,14 +1053,24 @@ function Sellers() {
 
 // ─── closing ─────────────────────────────────────────────────────────────────
 
+const LAST_CLOSING_DATE = new Date(2026, 7, 31);
+
 function Closing({ onHistory }: { onHistory: () => void }) {
   const [modal, setModal] = useState(false);
   const [understood, setUnderstood] = useState(false);
+  // Los cierres son consecutivos: el período abierto empieza el día siguiente al último cierre
+  // (31/08/2026) y el administrador solo elige hasta qué día cierra (máximo hoy).
+  const periodStart = addDays(LAST_CLOSING_DATE, 1);
+  const [periodEnd, setPeriodEnd] = useState(() => startOfDay(new Date()));
+  const period = { start: periodStart, end: periodEnd };
 
   return <div className="screen-stack">
     <Card className="closing-hero">
-      <div><Badge tone="warning">Período abierto</Badge><div className="section-title">Cierre del 1 al 14 de septiembre de 2026</div><div className="muted">Verifica que todos los movimientos estén registrados antes de cerrar.</div></div>
-      <Select value="1–14 septiembre 2026" options={["1–14 septiembre 2026", "Agosto 2026"]} />
+      <div><Badge tone="warning">Período abierto</Badge><div className="section-title">Cierre del {fmtRangeLong(period)}</div><div className="muted">Verifica que todos los movimientos estén registrados antes de cerrar.</div></div>
+      <div className="closing-range">
+        <div className="field"><span className="field-label">Desde</span><div className="readonly-from" title="Día siguiente al último cierre"><Icon name="lock" size="sm" />{fmtLongDay(periodStart)}</div></div>
+        <DatePicker label="Hasta" value={periodEnd} onChange={setPeriodEnd} min={periodStart} max={new Date()} align="right" />
+      </div>
     </Card>
 
     <div className="payment-totals">
@@ -1019,7 +1104,7 @@ function Closing({ onHistory }: { onHistory: () => void }) {
 
     <Modal
       open={modal}
-      title="¿Cerrar el período del 1 al 14 de septiembre de 2026?"
+      title={`¿Cerrar el período del ${fmtRangeLong(period)}?`}
       onClose={() => { setModal(false); setUnderstood(false); }}
       onConfirm={() => { setModal(false); setUnderstood(false); }}
       confirmLabel="Confirmar cierre"
@@ -1027,7 +1112,7 @@ function Closing({ onHistory }: { onHistory: () => void }) {
     >
       <div className="warning-box"><Icon name="lock" /><span>Esta acción no se puede deshacer. Después del cierre no se podrán agregar, editar ni eliminar ventas de este período.</span></div>
       <div className="confirm-box">
-        <div><span>Periodo</span><strong>1–14 septiembre 2026</strong></div>
+        <div><span>Periodo</span><strong>{fmtRange(period)}</strong></div>
         <div><span>Total</span><strong>Q 284,650.00</strong></div>
         <div><span>Ventas</span><strong>31</strong></div>
       </div>
@@ -1038,7 +1123,7 @@ function Closing({ onHistory }: { onHistory: () => void }) {
 
 // ─── settings ────────────────────────────────────────────────────────────────
 
-function Settings({ dark, onSetDark }: { dark: boolean; onSetDark: (d: boolean) => void }) {
+function Settings({ dark, onSetDark, accent, onSetAccent }: { dark: boolean; onSetDark: (d: boolean) => void; accent: Accent; onSetAccent: (a: Accent) => void }) {
   const COMM_CATS = [
     { label: "Accesorio", key: "Accesorio", default: "2.5" },
     { label: "Repuesto", key: "Repuesto", default: "2.5" },
@@ -1105,6 +1190,14 @@ function Settings({ dark, onSetDark }: { dark: boolean; onSetDark: (d: boolean) 
             <div className="theme-preview dark-preview"><div /><div /><div /></div>
             <div className="theme-option-label"><Icon name="moon" size="sm" /><span>Oscuro</span></div>
           </button>
+        </div>
+        <div className="field-label" style={{ margin: "1.5rem 0 0.35rem" }}>Color principal</div>
+        <div className="muted small" style={{ marginBottom: "0.9rem" }}>Se aplica a botones, menú, gráficas y al inicio de sesión, tanto en tema claro como oscuro.</div>
+        <div className="accent-selector">
+          {ACCENTS.map(a => <button type="button" key={a.id} className={`accent-option${accent === a.id ? " active" : ""}`} onClick={() => onSetAccent(a.id)}>
+            <span className="accent-swatch" style={{ background: a.swatch }}>{accent === a.id && <Icon name="check" size="sm" />}</span>
+            <span><span>{a.label}</span><small>{a.note}</small></span>
+          </button>)}
         </div>
       </Card>
     </div>
@@ -1198,6 +1291,9 @@ export default function App() {
   const [role, setRole] = useState<Role>("Administrador");
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [dark, setDark] = useState(false);
+  const [accent, setAccent] = useState<Accent>("orange");
+  // Se aplica en <html> para que el color también llegue a la pantalla de login
+  useEffect(() => { document.documentElement.dataset.accent = accent; }, [accent]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const allowedScreen = useMemo(() => role === "Empleado" && !["home", "sale", "history", "workshop", "invoice"].includes(screen) ? "home" : screen, [role, screen]);
 
@@ -1222,7 +1318,7 @@ export default function App() {
     expenses: <Expenses />,
     sellers: <Sellers />,
     closing: <Closing onHistory={() => setScreen("history")} />,
-    settings: <Settings dark={dark} onSetDark={setDark} />,
+    settings: <Settings dark={dark} onSetDark={setDark} accent={accent} onSetAccent={setAccent} />,
     invoice: <Invoice onBack={() => setScreen("sale")} />,
   };
   return <div className="app-shell" data-dark={dark ? "" : undefined}>
