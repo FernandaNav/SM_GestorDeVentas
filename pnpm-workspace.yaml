@@ -1,0 +1,4 @@
+# Paquetes a los que pnpm deja ejecutar su script de instalación.
+# esbuild lo necesitan Vite y tsx. (pnpm 10 lee lo mismo de "pnpm.onlyBuiltDependencies" en package.json)
+allowBuilds:
+  esbuild: true

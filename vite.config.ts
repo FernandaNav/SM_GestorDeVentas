@@ -28,6 +28,7 @@ react(),
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
+        '@shared': path.resolve(__dirname, './shared'),
       },
     },
     server: {
@@ -36,7 +37,8 @@ react(),
       strictPort: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          // Mismo puerto que API_PORT del .env (el backend)
+          target: `http://localhost:${process.env.API_PORT || 3001}`,
           changeOrigin: true,
         },
       },
