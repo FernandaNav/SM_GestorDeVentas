@@ -1,110 +1,116 @@
 import { useState } from "react";
-import Segmented from "@/components/Segmented";
-import { Button, Card, Icon, Modal, TextInput, Toggle, UnstyledButton } from "@/components/ui";
+import { useNavigate } from "react-router";
+import type { SaleDetail } from "@shared/schemas/sales";
+import { formatOrderNumber, nextWorkshopStatus, type WorkshopCheckoutInput } from "@shared/schemas/workshop";
+import { ApiError } from "@/api/client";
+import { workshopApi } from "@/api/workshop";
+import { Button, Card, Icon } from "@/components/ui";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import { formatQuetzales } from "@/lib/format";
-import { WORKSHOP_STATUS_SEQUENCE } from "@/pages/workshop/workshopStatus";
-import type { WorkshopOrder, WorkshopStatus } from "@/temporal/localStore";
+import { paths } from "@/layout/navigation";
+import CheckoutModal from "@/pages/workshop/CheckoutModal";
+import OrderItemsCard from "@/pages/workshop/OrderItemsCard";
+import { WORKSHOP_STATUS_SEQUENCE, formatDateTime } from "@/pages/workshop/workshopStatus";
 
-export default function OrderDetail({
-  order,
-  isAdmin,
-  onBack,
-  onUpdate,
-}: {
-  order: WorkshopOrder;
-  isAdmin: boolean;
-  onBack: () => void;
-  onUpdate: (o: WorkshopOrder) => void;
-}) {
+export default function OrderDetail({ orderId, onBack }: { orderId: number; onBack: () => void }) {
+  const navigate = useNavigate();
+  const { data: order, loading, error, refetch } = useApiQuery(`workshop/${orderId}`, () => workshopApi.get(orderId));
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const [paidSale, setPaidSale] = useState<SaleDetail | null>(null);
+
+  if (loading) return <div className="muted">Cargando orden...</div>;
+  if (!order) {
+    return (
+      <div className="screen-stack">
+        <div className="cf-warning">{error?.message ?? "No se encontró la orden"}</div>
+        <div><Button variant="secondary" onClick={onBack}>Volver a Taller</Button></div>
+      </div>
+    );
+  }
+
   const statusIndex = WORKSHOP_STATUS_SEQUENCE.indexOf(order.status);
-  const nextStatus = WORKSHOP_STATUS_SEQUENCE[statusIndex + 1] as WorkshopStatus | undefined;
-  const [finalCost, setFinalCost] = useState(order.cost.toString());
-  const [isFinalCostModalOpen, setIsFinalCostModalOpen] = useState(false);
-  const [isCollectModalOpen, setIsCollectModalOpen] = useState(false);
-  const [collectPaymentMethod, setCollectPaymentMethod] = useState("Efectivo");
-  const [collectIsInvoiced, setCollectIsInvoiced] = useState(false);
-  const [collectIdType, setCollectIdType] = useState<"NIT" | "CUI">("NIT");
-  const [collectId, setCollectId] = useState("");
-  const [collectClientName, setCollectClientName] = useState(order.client);
-  const [collectAddress, setCollectAddress] = useState("");
+  const nextStatus = nextWorkshopStatus(order.status);
+  const isDelivered = order.status === "Entregada";
+  const needsItems = nextStatus === "Lista para entregar" && order.itemsCount === 0;
 
-  const isCollectCF = collectId.toUpperCase() === "CF";
-  const collectTotal = parseFloat(finalCost) || 0;
-
-  const handleAdvanceStatus = () => {
+  const handleAdvance = async () => {
     if (!nextStatus) return;
-    if (nextStatus === "Lista para entregar") {
-      setIsFinalCostModalOpen(true);
-      return;
-    }
     if (nextStatus === "Entregada") {
-      setIsCollectModalOpen(true);
+      setIsCheckoutOpen(true);
       return;
     }
-    const timestampStr = new Date().toLocaleDateString("es-GT") + " " + new Date().toTimeString().slice(0, 5);
-    onUpdate({
-      ...order,
-      status: nextStatus,
-      log: [...order.log, { ts: timestampStr, event: `Pasó a ${nextStatus}` }],
-    });
+    setActionError(null);
+    setAdvancing(true);
+    try {
+      await workshopApi.changeStatus(order.id, nextStatus);
+      await refetch();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "No se pudo cambiar el estado");
+    } finally {
+      setAdvancing(false);
+    }
   };
 
-  const handleConfirmFinalCost = () => {
-    const costValue = parseFloat(finalCost) || order.cost;
-    const timestampStr = new Date().toLocaleDateString("es-GT") + " " + new Date().toTimeString().slice(0, 5);
-    onUpdate({
-      ...order,
-      status: "Lista para entregar",
-      cost: costValue,
-      costType: "final",
-      log: [...order.log, { ts: timestampStr, event: `Lista para entregar · costo final: ${formatQuetzales(costValue)}` }],
-    });
-    setIsFinalCostModalOpen(false);
+  const handleCheckout = async (input: WorkshopCheckoutInput) => {
+    const result = await workshopApi.checkout(order.id, input);
+    setPaidSale(result.sale);
+    await refetch();
   };
 
-  const handleConfirmCollection = () => {
-    const costValue = parseFloat(finalCost) || order.cost;
-    const timestampStr = new Date().toLocaleDateString("es-GT") + " " + new Date().toTimeString().slice(0, 5);
-    onUpdate({
-      ...order,
-      status: "Entregada",
-      cost: costValue,
-      costType: "cobrado",
-      log: [...order.log, { ts: timestampStr, event: "Entregada y cobrada" }],
-    });
-    setIsCollectModalOpen(false);
-  };
+  const advanceLabel =
+    nextStatus === "Entregada" ? "Cobrar y entregar" : nextStatus === "Lista para entregar" ? "Marcar lista para entregar" : `Pasar a: ${nextStatus}`;
 
   return (
     <div className="screen-stack">
       <div className="hero-row">
         <div className="order-back">
-          <button type="button" className="back-btn" onClick={onBack}>
+          <button type="button" className="back-btn" onClick={onBack} aria-label="Volver a Taller">
             <Icon name="chevron" size="sm" />
           </button>
           <div>
-            <div className="section-title">{order.id}</div>
-            <div className="muted">{order.client} · {order.moto}</div>
+            <div className="section-title">{formatOrderNumber(order.id)}</div>
+            <div className="muted">
+              {order.clientName} · {order.motorcycle}
+              {order.plate ? ` · ${order.plate}` : ""}
+            </div>
           </div>
         </div>
         <div className="row-actions">
           {nextStatus && (
-            <Button icon="check" onClick={handleAdvanceStatus}>
-              {nextStatus === "Entregada" ? "Cobrar y entregar" : `Pasar a: ${nextStatus}`}
+            <Button icon="check" onClick={handleAdvance} disabled={advancing || needsItems}>
+              {advancing ? "Guardando..." : advanceLabel}
             </Button>
           )}
         </div>
       </div>
 
+      {needsItems && (
+        <div className="info-banner">
+          <Icon name="wrench" />
+          <div>
+            <strong>Falta registrar lo que se hizo</strong>
+            <span>Agrega al menos un servicio o repuesto para poder marcar la orden como lista para entregar.</span>
+          </div>
+        </div>
+      )}
+      {actionError && <div className="cf-warning">{actionError}</div>}
+      {paidSale && (
+        <div className="success-banner">
+          <Icon name="check" />
+          <div>
+            <strong>Orden cobrada y entregada</strong>
+            <span>Se registró la venta #{paidSale.id} por {formatQuetzales(paidSale.total)} ({paidSale.paymentMethod}).</span>
+          </div>
+          <Button variant="secondary" onClick={() => navigate(paths.salesHistory)}>Ver en historial</Button>
+        </div>
+      )}
+
       <div className="step-indicator">
         {WORKSHOP_STATUS_SEQUENCE.map((statusName, idx) => (
-          <div
-            key={statusName}
-            className={`step ${idx <= statusIndex ? "done" : ""} ${idx === statusIndex ? "current" : ""}`}
-          >
-            <div className="step-dot">
-              {idx < statusIndex ? <Icon name="check" size="sm" /> : <span>{idx + 1}</span>}
-            </div>
+          <div key={statusName} className={`step ${idx <= statusIndex ? "done" : ""} ${idx === statusIndex ? "current" : ""}`}>
+            <div className="step-dot">{idx < statusIndex || isDelivered ? <Icon name="check" size="sm" /> : <span>{idx + 1}</span>}</div>
             <div className="step-label">{statusName}</div>
             {idx < WORKSHOP_STATUS_SEQUENCE.length - 1 && <div className="step-line" />}
           </div>
@@ -115,23 +121,38 @@ export default function OrderDetail({
         <Card className="form-card">
           <div className="card-title" style={{ marginBottom: 16 }}>Detalles de la orden</div>
           <div className="order-detail-rows">
-            <div><span>Cliente</span><strong>{order.client}</strong></div>
-            <div><span>Teléfono</span><strong>{order.phone}</strong></div>
-            <div><span>Motocicleta</span><strong>{order.moto}</strong></div>
-            <div><span>Trabajo solicitado</span><strong>{order.work}</strong></div>
-            <div><span>Mecánico</span><strong>{order.mechanic}</strong></div>
-            <div><span>Costo</span><strong>{formatQuetzales(order.cost)} <span className="cost-type">({order.costType})</span></strong></div>
+            <div><span>Cliente</span><strong>{order.clientName}</strong></div>
+            <div><span>Teléfono</span><strong>{order.clientPhone ?? "—"}</strong></div>
+            <div><span>Motocicleta</span><strong>{order.motorcycle}</strong></div>
+            <div><span>Placa</span><strong>{order.plate ?? "—"}</strong></div>
+            <div><span>Trabajo solicitado</span><strong>{order.workDescription}</strong></div>
+            <div><span>Mecánico</span><strong>{order.mechanicName}</strong></div>
+            <div><span>Recibida</span><strong>{formatDateTime(order.receivedAt)}</strong></div>
+            <div><span>Costo estimado</span><strong>{order.estimatedCost === null ? "—" : formatQuetzales(order.estimatedCost)}</strong></div>
+            {isDelivered ? (
+              <div>
+                <span>Cobrado</span>
+                <strong>
+                  {formatQuetzales(order.finalCost ?? order.itemsTotal)} <span className="cost-type">(venta #{order.saleId})</span>
+                </strong>
+              </div>
+            ) : (
+              <div><span>Total actual</span><strong>{formatQuetzales(order.itemsTotal)}</strong></div>
+            )}
           </div>
         </Card>
         <Card>
           <div className="card-title" style={{ marginBottom: 16 }}>Bitácora</div>
           <div className="order-log">
-            {order.log.map((entry, i) => (
-              <div key={i} className="log-entry">
+            {order.events.map((event) => (
+              <div key={event.id} className="log-entry">
                 <div className="log-dot" />
                 <div>
-                  <strong>{entry.ts}</strong>
-                  <span>{entry.event}</span>
+                  <strong>
+                    {formatDateTime(event.createdAt)}
+                    {event.createdByRole ? ` · ${event.createdByRole}` : ""}
+                  </strong>
+                  <span>{event.description}</span>
                 </div>
               </div>
             ))}
@@ -139,75 +160,21 @@ export default function OrderDetail({
         </Card>
       </div>
 
-      <Modal open={isFinalCostModalOpen} title="Ingresar costo final" onClose={() => setIsFinalCostModalOpen(false)} onConfirm={handleConfirmFinalCost} confirmLabel="Confirmar">
-        <TextInput label="Costo final del servicio" value={finalCost} onChange={setFinalCost} />
-        <div className="modal-hint">Este será el monto que se cobrará al cliente.</div>
-      </Modal>
+      <OrderItemsCard
+        items={order.items}
+        total={order.itemsTotal}
+        editable={!isDelivered}
+        onAdd={async (input) => {
+          await workshopApi.addItem(order.id, input);
+          await refetch();
+        }}
+        onRemove={async (item) => {
+          await workshopApi.removeItem(order.id, item.id);
+          await refetch();
+        }}
+      />
 
-      <Modal open={isCollectModalOpen} title="Cobrar y entregar" onClose={() => setIsCollectModalOpen(false)} onConfirm={handleConfirmCollection} confirmLabel="Confirmar cobro">
-        <div className="form-grid two">
-          <div className="span-two">
-            <TextInput label="Costo final cobrado" value={finalCost} onChange={setFinalCost} />
-          </div>
-          <div className="span-two">
-            <div className="field-label" style={{ marginBottom: 8 }}>Método de pago</div>
-            <Segmented
-              options={["Efectivo", "Transferencia", "Tarjeta"]}
-              value={collectPaymentMethod}
-              onChange={setCollectPaymentMethod}
-              icons={["cash", "bank", "card"]}
-            />
-          </div>
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <Toggle checked={collectIsInvoiced} onChange={setCollectIsInvoiced} label="¿Facturar este servicio?" />
-        </div>
-        {collectIsInvoiced && (
-          <div style={{ marginTop: 16 }} className="screen-stack">
-            <div className="client-id-row">
-              <div className="id-type-seg">
-                <UnstyledButton
-                  className={collectIdType === "NIT" ? "id-type-btn selected" : "id-type-btn"}
-                  onClick={() => setCollectIdType("NIT")}
-                >
-                  NIT
-                </UnstyledButton>
-                <UnstyledButton
-                  className={collectIdType === "CUI" ? "id-type-btn selected" : "id-type-btn"}
-                  onClick={() => setCollectIdType("CUI")}
-                >
-                  CUI
-                </UnstyledButton>
-              </div>
-              <TextInput
-                placeholder={collectIdType === "NIT" ? "Ej. 5489632-1" : "Ej. 2345 12345 0101"}
-                value={collectId}
-                onChange={setCollectId}
-                icon="search"
-              />
-              <button
-                type="button"
-                className="cf-btn"
-                onClick={() => {
-                  setCollectId("CF");
-                  setCollectClientName("Consumidor Final");
-                  setCollectAddress("Ciudad");
-                }}
-              >
-                CF
-              </button>
-            </div>
-            {collectIsInvoiced && isCollectCF && collectTotal >= 2500 && (
-              <div className="cf-warning">
-                <Icon name="bell" size="sm" />
-                <span>Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.</span>
-              </div>
-            )}
-            <TextInput label="Nombre o razón social" value={collectClientName} onChange={setCollectClientName} />
-            <TextInput label="Dirección fiscal" value={collectAddress} onChange={setCollectAddress} />
-          </div>
-        )}
-      </Modal>
+      {isCheckoutOpen && <CheckoutModal order={order} onClose={() => setIsCheckoutOpen(false)} onConfirm={handleCheckout} />}
     </div>
   );
 }
