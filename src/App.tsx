@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
 import RequireRole from "@/auth/RequireRole";
 import AppShell from "@/layout/AppShell";
@@ -35,7 +35,6 @@ export default function App() {
 // Los permisos por ruta coinciden con NAV_ITEMS (layout/navigation.ts) y con la API.
 function AppRoutes() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const theme = useTheme();
   // TEMPORAL: las pantallas sin API reciben los datos locales por props.
@@ -68,19 +67,7 @@ function AppRoutes() {
               />
             }
           />
-          <Route
-            path={paths.workshop}
-            element={
-              <WorkshopPage
-                key={searchParams.get("orden") ?? ""}
-                role={role}
-                orders={local.workshopOrders}
-                onAddOrder={local.addWorkshopOrder}
-                onUpdateOrder={local.updateWorkshopOrder}
-                initialOrderId={searchParams.get("orden")}
-              />
-            }
-          />
+          <Route path={paths.workshop} element={<WorkshopPage />} />
 
           {/* Solo Empleado */}
           <Route element={<RequireRole roles={["Empleado"]} />}>
