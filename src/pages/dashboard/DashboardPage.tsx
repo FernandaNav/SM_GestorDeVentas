@@ -1,169 +1,96 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import { fromApiDay, reportsApi } from "@/api/reports";
 import KpiCard from "@/components/KpiCard";
-import { addMonths, fmtMonth, fmtMonthShort, startOfDay, startOfMonth } from "@/components/dates";
-import { Button, Card, Icon, Select } from "@/components/ui";
-import { formatQuetzales } from "@/lib/format";
-import SalesTable, { type RecentSaleRow } from "@/pages/sales/SalesTable";
+import { addMonths, fmtMonth } from "@/components/dates";
+import { Badge, Button, Card, Icon, Select } from "@/components/ui";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { formatQuetzales, SALE_TIME_FORMAT, SHORT_DATE_FORMAT } from "@/lib/format";
+import { paths } from "@/layout/navigation";
+import EmptyState from "@/pages/stats/EmptyState";
+import { bucketLabel, bucketTick, greeting } from "@/pages/stats/reportFormat";
+import { BarList, formatChange, LineChart, LineLegend, percentChange } from "@/pages/stats/charts";
 
-type SellerPerformance = { name: string; shortName: string; amount: number; salesCount: number; colorClass: string };
-import type { ExpenseRecord, SaleRecord } from "@/temporal/localStore";
+const SELLER_MONTHS = ["Este mes", "Mes anterior"] as const;
 
-export default function Dashboard({
-  sales,
-  expenses,
-  onNewSale,
-  onHistory,
-}: {
-  sales: SaleRecord[];
-  expenses: ExpenseRecord[];
-  onNewSale: () => void;
-  onHistory?: () => void;
-}) {
-  const [sellerMonth, setSellerMonth] = useState<"Este mes" | "Mes anterior">("Este mes");
+// Dashboard del Administrador (RNF 4.1): todo viene calculado del servidor en una sola
+// consulta y se actualiza solo cada 10 s, así refleja lo que registra el mostrador.
+export default function DashboardPage() {
+  const navigate = useNavigate();
+  const [sellerMonth, setSellerMonth] = useState<(typeof SELLER_MONTHS)[number]>("Este mes");
+  const { data, loading, error } = useApiQuery("reports:dashboard", reportsApi.dashboard);
 
-  const sellerMonthLabel = fmtMonth(addMonths(new Date(), sellerMonth === "Este mes" ? 0 : -1));
+  if (!data) {
+    return (
+      <div className="screen-stack">
+        <Hero onNewSale={() => navigate(paths.newSale)} />
+        {error ? <div className="cf-warning">{error.message}</div> : loading && <Card className="rpt-loading">Cargando el resumen…</Card>}
+      </div>
+    );
+  }
 
-  // Dynamic calculations from real sales and expenses state
-  const computedMetrics = useMemo(() => {
-    const now = new Date();
-    const startOfCurrentDay = startOfDay(now).getTime();
-    const startOfCurrentMonth = startOfMonth(now).getTime();
+  const today = fromApiDay(data.today);
+  const { todaySales, monthSales, previousMonthSales, commissions, expenses, invoices } = data;
+  const monthChange = percentChange(monthSales.total, previousMonthSales.total);
+  const invoicePercent = invoices.limit > 0 ? Math.round((invoices.issued / invoices.limit) * 100) : 0;
+  const invoiceAlert = invoicePercent >= invoices.alertPercent;
+  const available = Math.max(0, invoices.limit - invoices.issued);
 
-    const todaySalesList = sales.filter((s) => s.timestamp >= startOfCurrentDay);
-    const monthSalesList = sales.filter((s) => s.timestamp >= startOfCurrentMonth);
-
-    const todaySalesTotal = todaySalesList.reduce((acc, s) => acc + s.amount, 0);
-    const monthSalesTotal = monthSalesList.reduce((acc, s) => acc + s.amount, 0);
-
-    const monthCommissionsTotal = monthSalesList.reduce((acc, s) => {
-      const parsed = parseFloat(s.commission.replace(/[^0-9.]/g, ""));
-      return acc + (isNaN(parsed) ? 0 : parsed);
-    }, 0);
-    const pendingCommissionsCount = monthSalesList.filter((s) => s.commission === "Pendiente").length;
-
-    const monthExpensesList = expenses.filter((e) => e.timestamp >= startOfCurrentMonth);
-    const monthExpensesTotal = monthExpensesList.reduce((acc, e) => acc + e.amount, 0);
-
-    const invoicedSalesCount = monthSalesList.filter((s) => s.invoiced).length;
-    const invoiceLimit = 200;
-    const availableInvoices = Math.max(0, invoiceLimit - invoicedSalesCount);
-    const invoicePercentage = invoiceLimit > 0 ? Math.round((invoicedSalesCount / invoiceLimit) * 100) : 0;
-
-    // Seller summary calculation from current sales
-    const sellerSalesMap: Record<string, { amount: number; count: number }> = {};
-    for (const sale of monthSalesList) {
-      const sellerName = sale.seller || "General";
-      if (!sellerSalesMap[sellerName]) {
-        sellerSalesMap[sellerName] = { amount: 0, count: 0 };
-      }
-      sellerSalesMap[sellerName].amount += sale.amount;
-      sellerSalesMap[sellerName].count += 1;
-    }
-
-    const colorClasses = ["bar-one", "bar-two", "bar-three"];
-    const dynamicSellers: SellerPerformance[] = Object.entries(sellerSalesMap)
-      .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([name, data], idx) => ({
-        name,
-        shortName: name.split(" ")[0],
-        amount: data.amount,
-        salesCount: data.count,
-        colorClass: colorClasses[idx % colorClasses.length],
-      }));
-
-    const dynamicTotalSellerAmount = dynamicSellers.reduce((acc, s) => acc + s.amount, 0);
-    const dynamicTotalSalesCount = dynamicSellers.reduce((acc, s) => acc + s.salesCount, 0);
-    const dynamicAverageTicket = dynamicTotalSalesCount > 0 ? dynamicTotalSellerAmount / dynamicTotalSalesCount : 0;
-
-    return {
-      todaySalesTotal,
-      todaySalesCount: todaySalesList.length,
-      monthSalesTotal,
-      monthSalesCount: monthSalesList.length,
-      monthCommissionsTotal,
-      pendingCommissionsCount,
-      monthExpensesTotal,
-      monthExpensesCount: monthExpensesList.length,
-      invoicedSalesCount,
-      invoiceLimit,
-      availableInvoices,
-      invoicePercentage,
-      sellers: dynamicSellers,
-      totalSellerAmount: dynamicTotalSellerAmount,
-      totalSalesCount: dynamicTotalSalesCount,
-      averageTicket: dynamicAverageTicket,
-    };
-  }, [sales, expenses]);
-
-  // TEMPORAL: métricas calculadas con los datos locales. El módulo Reportes las reemplaza
-  // por consultas SQL a la API (ver docs/MODULOS.md).
-  const kpis = {
-      todaySales: {
-        value: computedMetrics.todaySalesTotal,
-        comparisonText: computedMetrics.todaySalesCount > 0 ? `${computedMetrics.todaySalesCount} ventas registradas hoy` : "Sin ventas registradas hoy",
-        isPositive: computedMetrics.todaySalesCount > 0,
-        count: computedMetrics.todaySalesCount,
-      },
-      monthSales: {
-        value: computedMetrics.monthSalesTotal,
-        comparisonText: computedMetrics.monthSalesCount > 0 ? `${computedMetrics.monthSalesCount} ventas este mes` : "Sin ventas este mes",
-        isPositive: computedMetrics.monthSalesCount > 0,
-        count: computedMetrics.monthSalesCount,
-      },
-      monthCommissions: {
-        value: computedMetrics.monthCommissionsTotal,
-        pendingCount: computedMetrics.pendingCommissionsCount,
-        text: computedMetrics.pendingCommissionsCount > 0 ? `${computedMetrics.pendingCommissionsCount} ventas con comisión pendiente` : "Sin comisiones pendientes",
-      },
-      monthExpenses: {
-        value: computedMetrics.monthExpensesTotal,
-        count: computedMetrics.monthExpensesCount,
-        text: `${computedMetrics.monthExpensesCount} gastos registrados`,
-      },
-      invoices: {
-        issued: computedMetrics.invoicedSalesCount,
-        limit: computedMetrics.invoiceLimit,
-        available: computedMetrics.availableInvoices,
-        percentage: computedMetrics.invoicePercentage,
-      },
-    };
-
-  const activeSellers = computedMetrics.sellers;
-
-  const maxSellerAmount = Math.max(...activeSellers.map((s) => s.amount), 1);
-  const totalSellerSalesCount = computedMetrics.totalSalesCount;
-  const averageSellerTicket = computedMetrics.averageTicket;
-  const invoiceUsagePercentage = kpis.invoices.percentage;
-
-  const recentSalesRows: RecentSaleRow[] = sales.slice(0, 5).map((sale) => ({
-      id: String(sale.id),
-      time: sale.time,
-      product: sale.product,
-      category: sale.category,
-      seller: sale.seller,
-      paymentMethod: sale.paymentMethod,
-      amount: sale.amount,
-      commission: sale.commission,
-      isInvoiced: sale.invoiced,
-      invoiceStatus: sale.invoiced ? "Facturada" : "No facturada",
-    }));
+  const sellers = sellerMonth === "Este mes" ? data.sellers.currentMonth : data.sellers.previousMonth;
+  const sellersTotal = sellers.reduce((sum, s) => sum + s.total, 0);
+  const sellersCount = sellers.reduce((sum, s) => sum + s.salesCount, 0);
+  const hasMovements = data.dailySeries.some((point) => point.sales > 0 || point.expenses > 0);
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">Buenos días</div>
-          <div className="muted">Este es el resumen de tu negocio al día de hoy.</div>
+      <Hero onNewSale={() => navigate(paths.newSale)} />
+
+      {commissions.pendingItems > 0 && (
+        <div className="comm-pending-banner" role="status">
+          <Icon name="coins" size="sm" />
+          <span>
+            Hay {commissions.pendingSales} {commissions.pendingSales === 1 ? "venta" : "ventas"} de este mes con comisión pendiente de asignar.
+          </span>
+          <button type="button" className="forgot-link" style={{ background: "none", border: 0 }} onClick={() => navigate(paths.commissions)}>
+            Asignar comisiones
+          </button>
         </div>
-        <Button icon="plus" onClick={onNewSale}>Nueva venta</Button>
-      </div>
+      )}
 
       <div className="kpi-grid">
-        <KpiCard icon="cash" label="Ventas del día" value={formatQuetzales(kpis.todaySales.value)} foot={kpis.todaySales.comparisonText} tone="orange" />
-        <KpiCard icon="trending" label="Ventas del mes" value={formatQuetzales(kpis.monthSales.value)} foot={kpis.monthSales.comparisonText} tone="blue" />
-        <KpiCard icon="coins" label="Comisiones del mes" value={formatQuetzales(kpis.monthCommissions.value)} foot={kpis.monthCommissions.text} tone="purple" />
-        <KpiCard icon="receipt" label="Gastos del mes" value={formatQuetzales(kpis.monthExpenses.value)} foot={kpis.monthExpenses.text} tone="red" />
-        <KpiCard icon="file" label="Facturas emitidas" value={`${kpis.invoices.issued} / ${kpis.invoices.limit}`} foot={`${invoiceUsagePercentage}% del límite mensual`} tone="green" />
+        <KpiCard
+          icon="cash"
+          label="Ventas del día"
+          value={formatQuetzales(todaySales.total)}
+          foot={todaySales.count > 0 ? `${todaySales.count} ${todaySales.count === 1 ? "venta registrada" : "ventas registradas"} hoy` : "Sin ventas registradas hoy"}
+          tone="orange"
+        />
+        <KpiCard
+          icon="trending"
+          label={`Ventas de ${fmtMonth(today).split(" ")[0].toLowerCase()}`}
+          value={formatQuetzales(monthSales.total)}
+          foot={
+            monthChange === null
+              ? `${monthSales.count} ventas este mes`
+              : `${formatChange(monthSales.total, previousMonthSales.total)} vs. mismos días del mes anterior`
+          }
+          tone="blue"
+        />
+        <KpiCard
+          icon="coins"
+          label="Comisiones del mes"
+          value={formatQuetzales(commissions.total)}
+          foot={commissions.pendingItems > 0 ? `${commissions.pendingItems} artículos con comisión pendiente` : "Sin comisiones pendientes"}
+          tone="purple"
+        />
+        <KpiCard icon="receipt" label="Gastos del mes" value={formatQuetzales(expenses.total)} foot={`${expenses.count} gastos registrados`} tone="red" />
+        <KpiCard
+          icon="file"
+          label="Facturas emitidas"
+          value={`${invoices.issued} / ${invoices.limit}`}
+          foot={`${invoicePercent} % del límite mensual`}
+          tone="green"
+        />
       </div>
 
       <div className="dashboard-grid">
@@ -171,44 +98,27 @@ export default function Dashboard({
           <div className="card-heading">
             <div>
               <div className="card-title">Ventas por vendedor</div>
-              <div className="muted small">{sellerMonthLabel} · monto vendido</div>
+              <div className="muted small">{fmtMonth(addMonths(today, sellerMonth === "Este mes" ? 0 : -1))} · monto vendido</div>
             </div>
-            <Select value={sellerMonth} options={["Este mes", "Mes anterior"]} onChange={(v) => setSellerMonth(v as any)} />
+            <Select value={sellerMonth} options={[...SELLER_MONTHS]} onChange={(value) => setSellerMonth(value as typeof sellerMonth)} />
           </div>
-
-          {activeSellers.length === 0 ? (
-            <div className="empty-state-box">
-              <div className="empty-state-icon">
-                <Icon name="users" />
-              </div>
-              <div className="empty-state-title">Sin ventas registradas</div>
-              <div className="empty-state-desc">Las ventas que registres con vendedor asignado aparecerán en esta gráfica.</div>
-            </div>
+          {sellers.length === 0 ? (
+            <EmptyState icon="users" title="Sin ventas en este mes" text="Las ventas que se registren con vendedor asignado aparecerán aquí." />
           ) : (
             <>
-              <div className="bar-chart">
-                <div className="y-axis">
-                  <span>{formatQuetzales(maxSellerAmount)}</span>
-                  <span>{formatQuetzales(Math.round(maxSellerAmount * 0.66))}</span>
-                  <span>{formatQuetzales(Math.round(maxSellerAmount * 0.33))}</span>
-                  <span>Q 0</span>
-                </div>
-                <div className="bars">
-                  {activeSellers.map((sellerItem) => (
-                    <div className="bar-group" key={sellerItem.name}>
-                      <span
-                        className={`bar ${sellerItem.colorClass}`}
-                        style={{ height: `${Math.max(15, Math.round((sellerItem.amount / maxSellerAmount) * 100))}%` }}
-                      />
-                      <strong>{formatQuetzales(sellerItem.amount)}</strong>
-                      <small>{sellerItem.shortName}</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <BarList
+                rows={sellers.map((s) => ({
+                  key: s.sellerId,
+                  label: s.sellerName,
+                  detail: `${s.salesCount} ${s.salesCount === 1 ? "venta" : "ventas"} · comisión ${formatQuetzales(s.commissionTotal)}`,
+                  value: s.total,
+                }))}
+              />
               <div className="chart-summary">
-                <span><i className="dot orange" /> {totalSellerSalesCount} ventas totales</span>
-                <span>Ticket promedio <strong>{formatQuetzales(averageSellerTicket)}</strong></span>
+                <span>{sellersCount} ventas totales</span>
+                <span>
+                  Ticket promedio <strong>{formatQuetzales(sellersCount > 0 ? sellersTotal / sellersCount : 0)}</strong>
+                </span>
               </div>
             </>
           )}
@@ -218,38 +128,22 @@ export default function Dashboard({
           <div className="card-heading">
             <div>
               <div className="card-title">Ventas vs. gastos</div>
-              <div className="muted small">Comportamiento durante el mes</div>
+              <div className="muted small">Por día, del 1 al {today.getDate()} de {fmtMonth(today).split(" ")[0].toLowerCase()}</div>
             </div>
-            <div className="legend">
-              <span><i className="dot orange" /> Ventas</span>
-              <span><i className="dot gray" /> Gastos</span>
-            </div>
+            <LineLegend series={[{ name: "Ventas", kind: "sales" }, { name: "Gastos", kind: "expense" }]} />
           </div>
-
-          {kpis.monthSales.value === 0 && kpis.monthExpenses.value === 0 ? (
-            <div className="empty-state-box">
-              <div className="empty-state-icon">
-                <Icon name="chart" />
-              </div>
-              <div className="empty-state-title">Sin movimientos registrados</div>
-              <div className="empty-state-desc">Registra ventas o compras operativas para comparar ingresos vs gastos del mes.</div>
-            </div>
+          {!hasMovements ? (
+            <EmptyState icon="chart" title="Sin movimientos este mes" text="Registra ventas o gastos para comparar ingresos y egresos del mes." />
           ) : (
-            <div className="line-chart">
-              <div className="grid-lines"><span /><span /><span /><span /></div>
-              <svg viewBox="0 0 520 190" preserveAspectRatio="none">
-                <path className="area-path" d="M0 160 C55 145 75 120 120 126 S190 75 245 90 S310 30 365 58 S445 30 520 20 L520 190 L0 190Z" />
-                <path className="sales-path" d="M0 160 C55 145 75 120 120 126 S190 75 245 90 S310 30 365 58 S445 30 520 20" />
-                <path className="expense-path" d="M0 170 C80 165 110 155 165 160 S250 145 310 153 S390 138 440 145 S490 130 520 136" />
-              </svg>
-              <div className="x-labels">
-                <span>1 {fmtMonthShort(new Date())}</span>
-                <span>7 {fmtMonthShort(new Date())}</span>
-                <span>14 {fmtMonthShort(new Date())}</span>
-                <span>21 {fmtMonthShort(new Date())}</span>
-                <span>Fin de mes</span>
-              </div>
-            </div>
+            <LineChart
+              height={200}
+              labels={data.dailySeries.map((p) => bucketTick(p.bucket, "day"))}
+              tooltipLabels={data.dailySeries.map((p) => bucketLabel(p.bucket, "day"))}
+              series={[
+                { name: "Ventas", kind: "sales", values: data.dailySeries.map((p) => p.sales) },
+                { name: "Gastos", kind: "expense", values: data.dailySeries.map((p) => p.expenses) },
+              ]}
+            />
           )}
         </Card>
       </div>
@@ -261,35 +155,100 @@ export default function Dashboard({
               <div className="card-title">Ventas recientes</div>
               <div className="muted small">Últimos movimientos registrados</div>
             </div>
-            {onHistory && sales.length > 0 && <Button variant="ghost" onClick={onHistory}>Ver historial</Button>}
+            {data.recentSales.length > 0 && (
+              <Button variant="ghost" onClick={() => navigate(paths.salesHistory)}>
+                Ver historial
+              </Button>
+            )}
           </div>
-          <SalesTable compact={true} salesData={recentSalesRows} onNewSale={onNewSale} />
+          {data.recentSales.length === 0 ? (
+            <EmptyState icon="receipt" title="No hay ventas registradas aún" text="Las ventas que registres se mostrarán aquí." />
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha / hora</th>
+                    <th>Productos</th>
+                    <th>Vendedor</th>
+                    <th>Pago</th>
+                    <th>Monto</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recentSales.map((sale) => (
+                    <tr key={sale.id}>
+                      <td>
+                        {SHORT_DATE_FORMAT.format(new Date(sale.soldAt))} · {SALE_TIME_FORMAT.format(new Date(sale.soldAt))}
+                      </td>
+                      <td>
+                        <strong>{sale.itemsSummary}</strong>
+                      </td>
+                      <td>{sale.sellerName}</td>
+                      <td>{sale.paymentMethod}</td>
+                      <td>
+                        <strong>{formatQuetzales(sale.total)}</strong>
+                      </td>
+                      <td>
+                        <Badge tone={sale.isInvoiced ? "success" : "neutral"}>{sale.isInvoiced ? "Facturada" : "No facturada"}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
 
         <Card className="invoice-limit">
           <div className="card-title">Control de facturas</div>
-          <div className="radial" style={{ background: `conic-gradient(var(--color-primary) 0 ${invoiceUsagePercentage}%, var(--color-primary-soft) ${invoiceUsagePercentage}% 100%)` }}>
+          <div
+            className="radial"
+            style={{
+              position: "relative",
+              background: `conic-gradient(var(${invoiceAlert ? "--color-warning" : "--color-primary"}) 0 ${Math.min(100, invoicePercent)}%, var(--color-primary-soft) ${Math.min(100, invoicePercent)}% 100%)`,
+            }}
+          >
             <div>
-              <strong>{invoiceUsagePercentage}%</strong>
+              <strong>{invoicePercent}%</strong>
               <span>utilizado</span>
             </div>
           </div>
           <div className="limit-stats">
             <div>
               <span>Emitidas</span>
-              <strong>{kpis.invoices.issued}</strong>
+              <strong>{invoices.issued}</strong>
             </div>
             <div>
               <span>Disponibles</span>
-              <strong>{kpis.invoices.available}</strong>
+              <strong>{available}</strong>
             </div>
           </div>
-          <div className="notice">
+          <div className="notice" style={invoiceAlert ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" } : undefined}>
             <Icon name="file" size="sm" />
-            <span>Te quedan {kpis.invoices.available} facturas disponibles este mes.</span>
+            <span>
+              {invoiceAlert
+                ? `Atención: ya se usó el ${invoicePercent} % del límite. Quedan ${available} facturas este mes.`
+                : `Te quedan ${available} facturas disponibles este mes.`}
+            </span>
           </div>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function Hero({ onNewSale }: { onNewSale: () => void }) {
+  return (
+    <div className="hero-row">
+      <div>
+        <div className="section-title">{greeting()}</div>
+        <div className="muted">Este es el resumen de tu negocio al día de hoy.</div>
+      </div>
+      <Button icon="plus" onClick={onNewSale}>
+        Nueva venta
+      </Button>
     </div>
   );
 }

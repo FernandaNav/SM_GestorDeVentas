@@ -71,38 +71,14 @@ function AppRoutes() {
 
           {/* Solo Empleado */}
           <Route element={<RequireRole roles={["Empleado"]} />}>
-            <Route
-              path={paths.home}
-              element={
-                <EmployeeHomePage
-                  sales={local.sales}
-                  orders={local.workshopOrders}
-                  onNewSale={() => navigate(paths.newSale)}
-                  onInvoice={() => navigate(paths.salesHistory)}
-                  onViewOrder={(id) => navigate(`${paths.workshop}?orden=${encodeURIComponent(id)}`)}
-                />
-              }
-            />
+            <Route path={paths.home} element={<EmployeeHomePage />} />
           </Route>
 
           {/* Solo Administrador */}
           <Route element={<RequireRole roles={["Administrador"]} />}>
-            <Route
-              path={paths.dashboard}
-              element={
-                <DashboardPage
-                  sales={local.sales}
-                  expenses={local.expenses}
-                  onNewSale={() => navigate(paths.newSale)}
-                  onHistory={() => navigate(paths.salesHistory)}
-                />
-              }
-            />
-            <Route path={paths.commissions} element={<CommissionsPage sales={local.sales} onUpdateSale={local.updateSale} />} />
-            <Route
-              path={paths.stats}
-              element={<StatsPage sales={local.sales} expenses={local.expenses} orders={local.workshopOrders} />}
-            />
+            <Route path={paths.dashboard} element={<DashboardPage />} />
+            <Route path={paths.commissions} element={<CommissionsPage />} />
+            <Route path={paths.stats} element={<StatsPage />} />
             <Route
               path={paths.expenses}
               element={<ExpensesPage expenses={local.expenses} onAddExpense={local.addExpense} onDeleteExpense={local.deleteExpense} />}
