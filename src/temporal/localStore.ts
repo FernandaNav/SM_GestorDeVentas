@@ -1,3 +1,5 @@
+// TEMPORAL: reemplazar por API. Almacenamiento en el navegador (ver LocalDataProvider.tsx).
+
 export interface SaleItem {
   id: number;
   desc: string;

@@ -59,7 +59,7 @@ button { cursor: pointer; }
 .login-brand .brand-logo { width: 310px; max-width: 100%; }
 .invoice-brand .brand-logo, .logo-uploader .brand-logo { width: 210px; max-width: 100%; background: var(--color-sidebar); border-radius: var(--radius-sm); padding: 12px; }
 .nav-list { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.nav-item { border: 0; background: transparent; color: #aeb2ba; display: flex; align-items: center; gap: 13px; padding: 12px 14px; border-radius: var(--radius-sm); width: 100%; font-weight: 500; text-align: left; transition: .18s ease; }
+.nav-item { text-decoration: none; box-sizing: border-box; border: 0; background: transparent; color: #aeb2ba; display: flex; align-items: center; gap: 13px; padding: 12px 14px; border-radius: var(--radius-sm); width: 100%; font-weight: 500; text-align: left; transition: .18s ease; }
 .nav-item:hover { color: white; background: var(--color-sidebar-soft); }
 .nav-item.active { color: white; background: var(--color-primary); box-shadow: 0 6px 16px rgb(var(--color-primary-rgb) / 22%); }
 .sidebar-help { border-top: 1px solid #30333a; padding: 20px 8px 4px; display: flex; gap: 10px; align-items: center; }
