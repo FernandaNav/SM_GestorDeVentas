@@ -54,3 +54,6 @@ Thumbs.db
 /.figma/design-context/
 /.plugins/
 /.opencode-skills/
+
+# Configuración local de Claude Code (no es parte del sistema)
+.claude/
