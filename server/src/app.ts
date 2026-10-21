@@ -9,6 +9,7 @@ import { authRouter } from "./modules/auth/auth.routes";
 import { categoriesRouter } from "./modules/categories/categories.routes";
 import { expensesRouter } from "./modules/expenses/expenses.routes";
 import { salesRouter } from "./modules/sales/sales.routes";
+import { settingsRouter } from "./modules/settings/settings.routes";
 import { staffRouter } from "./modules/staff/staff.routes";
 import { workshopRouter } from "./modules/workshop/workshop.routes";
 
@@ -31,6 +32,7 @@ app.use("/api/categories", categoriesRouter);
 app.use("/api/sales", salesRouter);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/workshop", workshopRouter);
+app.use("/api/settings", settingsRouter);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Ruta no encontrada" });
