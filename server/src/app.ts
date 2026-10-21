@@ -7,6 +7,7 @@ import { authenticate } from "./middlewares/auth";
 import { errorHandler } from "./middlewares/error-handler";
 import { authRouter } from "./modules/auth/auth.routes";
 import { categoriesRouter } from "./modules/categories/categories.routes";
+import { expensesRouter } from "./modules/expenses/expenses.routes";
 import { salesRouter } from "./modules/sales/sales.routes";
 import { staffRouter } from "./modules/staff/staff.routes";
 
@@ -27,6 +28,7 @@ app.use("/api", authenticate);
 app.use("/api/staff", staffRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/sales", salesRouter);
+app.use("/api/expenses", expensesRouter);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Ruta no encontrada" });
