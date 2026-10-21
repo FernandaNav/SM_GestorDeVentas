@@ -1,14 +1,16 @@
 import { z } from "zod";
 import { ROLES } from "../constants";
 
+const roleSchema = z.enum(ROLES, { message: "Elige Administrador o Empleado" });
+
 export const loginSchema = z.object({
-  role: z.enum(ROLES),
+  role: roleSchema,
   password: z.string().min(1, "Ingresa la contraseña"),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const changePasswordSchema = z.object({
-  role: z.enum(ROLES),
+  role: roleSchema,
   newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
