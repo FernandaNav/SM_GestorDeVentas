@@ -686,3 +686,39 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .hero-row:has(.inline-filters) { flex-wrap: wrap; }
 .inline-filters .field { min-width: 0; }
 [data-dark] .picker-popover { border-color: var(--color-line); }
+
+/* Empty state styling */
+.empty-state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 18px;
+  gap: 10px;
+  color: var(--color-muted);
+  min-height: 180px;
+  width: 100%;
+}
+.empty-state-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+}
+.empty-state-title {
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.empty-state-desc {
+  font-size: 11px;
+  max-width: 320px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
