@@ -118,7 +118,7 @@ function AppRoutes() {
             />
             <Route
               path={paths.expenses}
-              element={<ExpensesPage expenses={local.expenses} onAddExpense={local.addExpense} onDeleteExpense={local.deleteExpense} />}
+              element={<ExpensesPage />}
             />
             <Route path={paths.staff} element={<StaffPage />} />
             <Route
