@@ -110,7 +110,7 @@ function AppRoutes() {
             <Route path={paths.staff} element={<StaffPage />} />
             <Route
               path={paths.closing}
-              element={<ClosingPage sales={local.sales} onHistory={() => navigate(paths.salesHistory)} onClosePeriod={local.closePeriod} />}
+              element={<ClosingPage onHistory={() => navigate(paths.salesHistory)} />}
             />
             <Route
               path={paths.settings}
