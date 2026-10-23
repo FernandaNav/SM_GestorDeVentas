@@ -105,12 +105,12 @@ function AppRoutes() {
             />
             <Route
               path={paths.expenses}
-              element={<ExpensesPage expenses={local.expenses} onAddExpense={local.addExpense} onDeleteExpense={local.deleteExpense} />}
+              element={<ExpensesPage />}
             />
             <Route path={paths.staff} element={<StaffPage />} />
             <Route
               path={paths.closing}
-              element={<ClosingPage sales={local.sales} onHistory={() => navigate(paths.salesHistory)} onClosePeriod={local.closePeriod} />}
+              element={<ClosingPage onHistory={() => navigate(paths.salesHistory)} />}
             />
             <Route
               path={paths.settings}
