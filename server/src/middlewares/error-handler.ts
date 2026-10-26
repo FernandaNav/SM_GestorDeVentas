@@ -18,7 +18,9 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
   }
 
   const pgError = error as PgError;
-  if (pgError.hint === "periodo_cerrado") {
+  // P0001 = RAISE EXCEPTION de nuestros triggers (período cerrado, cierre inmutable o
+  // inválido). Su mensaje ya está escrito para el usuario.
+  if (pgError.code === "P0001") {
     res.status(409).json({ error: pgError.message });
     return;
   }
