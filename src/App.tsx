@@ -53,20 +53,13 @@ function AppRoutes() {
           {/* Administrador y Empleado */}
           <Route
             path={paths.newSale}
-            element={<NewSalePage role={role} onHistory={() => navigate(paths.salesHistory)} onAddSale={local.addSale} />}
+            element={<NewSalePage role={role} onHistory={() => navigate(paths.salesHistory)} />}
           />
           <Route
             path={paths.salesHistory}
-            element={
-              <SalesHistoryPage
-                role={role}
-                sales={local.sales}
-                onInvoice={() => navigate(paths.salesHistory)}
-                onUpdateSale={local.updateSale}
-                onDeleteSale={local.deleteSale}
-              />
-            }
+            element={<SalesHistoryPage role={role} onInvoice={() => navigate(paths.salesHistory)} />}
           />
+
           <Route path={paths.workshop} element={<WorkshopPage />} />
 
           {/* Solo Empleado */}

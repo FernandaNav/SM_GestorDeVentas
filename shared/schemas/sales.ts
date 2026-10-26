@@ -74,6 +74,43 @@ export const createSaleSchema = z
     }
   });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
+export const updateSaleSchema = createSaleSchema;
+export type UpdateSaleInput = CreateSaleInput;
+
+export const saleFiltersSchema = z.object({
+  from: z.string().date("Fecha inválida (usa AAAA-MM-DD)").optional(),
+  to: z.string().date("Fecha inválida (usa AAAA-MM-DD)").optional(),
+  sellerId: z.coerce.number().int().positive().optional(),
+  categoryId: z.coerce.number().int().positive().optional(),
+  paymentMethod: z.enum(PAYMENT_METHODS).optional(),
+  isInvoiced: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .transform((val) => (typeof val === "boolean" ? val : val === "true"))
+    .optional(),
+  hasPendingCommission: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .transform((val) => (typeof val === "boolean" ? val : val === "true"))
+    .optional(),
+  search: z.string().trim().optional(),
+});
+export type SaleFilters = z.infer<typeof saleFiltersSchema>;
+
+export type InvoiceUsage = {
+  issued: number;
+  limit: number;
+  alertPercent: number;
+  isAlert: boolean;
+  percent: number;
+  remaining: number;
+};
+
+export type ClientLookup = {
+  id: number;
+  taxIdType: TaxIdType;
+  taxId: string;
+  name: string;
+  address: string | null;
+};
 
 /** Suma de cantidad × precio, redondeada a centavos. La usan el formulario y el backend. */
 export function calculateTotal(items: Pick<SaleItemInput, "quantity" | "unitPrice">[]): number {
@@ -87,6 +124,7 @@ export function calculateTotal(items: Pick<SaleItemInput, "quantity" | "unitPric
 export type SaleSummary = {
   id: number;
   soldAt: string;
+  sellerId: number;
   sellerName: string;
   paymentMethod: PaymentMethod;
   isInvoiced: boolean;
@@ -122,3 +160,4 @@ export type SaleDetail = {
   total: number;
   items: SaleItem[];
 };
+

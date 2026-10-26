@@ -722,3 +722,38 @@ body:has(.app-shell[data-dark]) { background: #111316; }
   color: var(--color-muted);
 }
 
+@media print {
+  header,
+  aside,
+  nav,
+  .app-sidebar,
+  .app-header,
+  .invoice-actions,
+  .hero-row,
+  .modal-backdrop,
+  button {
+    display: none !important;
+  }
+
+  body,
+  #root,
+  .app-shell,
+  .app-main,
+  .invoice-page {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .invoice-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+}
+
+

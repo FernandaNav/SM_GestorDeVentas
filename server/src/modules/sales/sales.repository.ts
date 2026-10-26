@@ -57,10 +57,51 @@ export async function insertItems(db: Queryable, saleId: number, items: NewSaleI
   }
 }
 
-export async function findSummaries(db: Queryable, range: DateRange): Promise<Required<SaleSummary>[]> {
+export async function findSummaries(db: Queryable, filters: import("@shared/schemas/sales").SaleFilters): Promise<Required<SaleSummary>[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.from && filters.to) {
+    params.push(filters.from, filters.to);
+    conditions.push(betweenBusinessDays("s.sold_at", `$${params.length - 1}`, `$${params.length}`));
+  }
+
+  if (filters.sellerId) {
+    params.push(filters.sellerId);
+    conditions.push(`s.seller_id = $${params.length}`);
+  }
+
+  if (filters.paymentMethod) {
+    params.push(filters.paymentMethod);
+    conditions.push(`s.payment_method = $${params.length}`);
+  }
+
+  if (filters.isInvoiced !== undefined) {
+    params.push(filters.isInvoiced);
+    conditions.push(`s.is_invoiced = $${params.length}`);
+  }
+
+  if (filters.categoryId) {
+    params.push(filters.categoryId);
+    conditions.push(`EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.category_id = $${params.length})`);
+  }
+
+  if (filters.hasPendingCommission) {
+    conditions.push(`EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.commission_rate IS NULL)`);
+  }
+
+  if (filters.search && filters.search.trim()) {
+    params.push(`%${filters.search.trim()}%`);
+    const pIdx = params.length;
+    conditions.push(`(s.client_name ILIKE $${pIdx} OR st.full_name ILIKE $${pIdx} OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.description ILIKE $${pIdx}))`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
   const { rows } = await db.query<Required<SaleSummary>>(
     `SELECT s.id,
             s.sold_at AS "soldAt",
+            s.seller_id AS "sellerId",
             st.full_name AS "sellerName",
             s.payment_method AS "paymentMethod",
             s.is_invoiced AS "isInvoiced",
@@ -72,13 +113,14 @@ export async function findSummaries(db: Queryable, range: DateRange): Promise<Re
      FROM sales s
      JOIN staff st ON st.id = s.seller_id
      JOIN sale_items i ON i.sale_id = s.id
-     WHERE ${betweenBusinessDays("s.sold_at", "$1", "$2")}
+     ${whereClause}
      GROUP BY s.id, st.full_name
      ORDER BY s.sold_at DESC`,
-    [range.from, range.to],
+    params,
   );
   return rows;
 }
+
 
 type SaleDetailRow = Omit<SaleDetail, "client" | "items"> & {
   clientTaxIdType: TaxIdType | null;
@@ -141,3 +183,64 @@ export async function upsertClient(
   );
   return rows[0].id;
 }
+
+export async function findClientByTaxId(
+  db: Queryable,
+  taxId: string,
+): Promise<import("@shared/schemas/sales").ClientLookup | undefined> {
+  const clean = taxId.trim().toUpperCase();
+  const { rows } = await db.query<import("@shared/schemas/sales").ClientLookup>(
+    `SELECT id, tax_id_type AS "taxIdType", tax_id AS "taxId", name, address
+     FROM clients
+     WHERE UPPER(tax_id) = $1`,
+    [clean],
+  );
+  return rows[0];
+}
+
+export async function findMonthlyInvoiceUsage(
+  db: Queryable,
+  monthRange: import("@shared/schemas/common").DateRange,
+): Promise<{ issued: number; limit: number; alertPercent: number }> {
+  const { rows } = await db.query<{ issued: number; limit: number; alertPercent: number }>(
+    `SELECT (SELECT count(*) FROM sales WHERE is_invoiced AND ${betweenBusinessDays("sold_at", "$1", "$2")}) AS issued,
+            coalesce(st.monthly_invoice_limit, 200) AS "limit",
+            coalesce(st.invoice_alert_percent, 80) AS "alertPercent"
+     FROM (SELECT 1) AS one
+     LEFT JOIN settings st ON st.id = 1`,
+    [monthRange.from, monthRange.to],
+  );
+  return rows[0];
+}
+
+export async function updateSale(db: Queryable, id: number, sale: Omit<NewSaleRow, "createdBy">): Promise<void> {
+  await db.query(
+    `UPDATE sales
+     SET seller_id = $1, payment_method = $2, is_invoiced = $3, client_id = $4,
+         client_tax_id_type = $5, client_tax_id = $6, client_name = $7, client_address = $8,
+         observations = $9, total = $10, updated_at = now()
+     WHERE id = $11`,
+    [
+      sale.sellerId,
+      sale.paymentMethod,
+      sale.isInvoiced,
+      sale.clientId,
+      sale.client?.taxIdType ?? null,
+      sale.client?.taxId ?? null,
+      sale.client?.name ?? null,
+      sale.client?.address ?? null,
+      sale.observations,
+      sale.total,
+      id,
+    ],
+  );
+}
+
+export async function deleteItems(db: Queryable, saleId: number): Promise<void> {
+  await db.query(`DELETE FROM sale_items WHERE sale_id = $1`, [saleId]);
+}
+
+export async function deleteSale(db: Queryable, id: number): Promise<void> {
+  await db.query(`DELETE FROM sales WHERE id = $1`, [id]);
+}
+

@@ -58,12 +58,12 @@ export async function createSale(input: NewSale, req: Request, db?: pg.PoolClien
   return forRole(created, user.role);
 }
 
-export async function listSales(range: DateRange, role: Role): Promise<SaleSummary[]> {
-  if (role === "Administrador") return salesRepository.findSummaries(pool, range);
+export async function listSales(filters: import("@shared/schemas/sales").SaleFilters, role: Role): Promise<SaleSummary[]> {
+  if (role === "Administrador") return salesRepository.findSummaries(pool, filters);
 
   // El empleado solo ve las ventas del día y sin comisiones (RNF 1.3)
   const today = todayInGuatemala();
-  const sales = await salesRepository.findSummaries(pool, { from: today, to: today });
+  const sales = await salesRepository.findSummaries(pool, { ...filters, from: today, to: today });
   return sales.map(({ commissionAmount, hasPendingCommission, ...sale }) => sale);
 }
 
@@ -72,6 +72,72 @@ export async function getSale(id: number, role: Role): Promise<SaleDetail> {
   if (!sale) throw notFound("Venta");
   return forRole(sale, role);
 }
+
+export async function lookupClient(taxId: string): Promise<import("@shared/schemas/sales").ClientLookup | null> {
+  const client = await salesRepository.findClientByTaxId(pool, taxId);
+  return client ?? null;
+}
+
+export async function getInvoiceUsage(): Promise<import("@shared/schemas/sales").InvoiceUsage> {
+  const today = todayInGuatemala();
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const usage = await salesRepository.findMonthlyInvoiceUsage(pool, { from: monthStart, to: today });
+  const percent = usage.limit > 0 ? Math.round((usage.issued / usage.limit) * 100) : 0;
+  return {
+    ...usage,
+    percent,
+    isAlert: percent >= usage.alertPercent,
+    remaining: Math.max(0, usage.limit - usage.issued),
+  };
+}
+
+export async function updateSale(id: number, input: NewSale, req: Request): Promise<SaleDetail> {
+  return withTransaction(async (db) => {
+    const user = currentUser(req);
+    const before = await salesRepository.findDetail(db, id);
+    if (!before) throw notFound("Venta");
+
+    await assertActiveSeller(db, input.sellerId);
+    const items = await resolveItems(db, input.items, user.role);
+
+    const client = input.isInvoiced && input.client ? input.client : null;
+    const clientSnapshot = client
+      ? { taxIdType: client.taxIdType, taxId: client.taxId.toUpperCase(), name: client.name, address: client.address || null }
+      : null;
+    const clientId =
+      clientSnapshot && clientSnapshot.taxIdType !== "CF"
+        ? await salesRepository.upsertClient(db, { ...clientSnapshot, taxIdType: clientSnapshot.taxIdType })
+        : null;
+
+    await salesRepository.updateSale(db, id, {
+      sellerId: input.sellerId,
+      paymentMethod: input.paymentMethod,
+      isInvoiced: input.isInvoiced,
+      clientId,
+      client: clientSnapshot,
+      observations: input.observations || null,
+      total: calculateTotal(items),
+    });
+
+    await salesRepository.deleteItems(db, id);
+    await salesRepository.insertItems(db, id, items);
+
+    const after = (await salesRepository.findDetail(db, id))!;
+    await recordAudit(db, req, { action: "editar", entity: "sales", entityId: id, before, after });
+    return forRole(after, user.role);
+  });
+}
+
+export async function deleteSale(id: number, req: Request): Promise<void> {
+  return withTransaction(async (db) => {
+    const before = await salesRepository.findDetail(db, id);
+    if (!before) throw notFound("Venta");
+
+    await salesRepository.deleteSale(db, id);
+    await recordAudit(db, req, { action: "eliminar", entity: "sales", entityId: id, before });
+  });
+}
+
 
 // ─── reglas internas ────────────────────────────────────────────────────────
 

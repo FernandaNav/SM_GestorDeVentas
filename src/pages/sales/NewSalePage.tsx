@@ -1,8 +1,11 @@
-import { useState } from "react";
-import type { Role } from "@shared/constants";
+import { useEffect, useState } from "react";
+import type { PaymentMethod, Role } from "@shared/constants";
+import type { ClientLookup, CreateSaleInput, SaleDetail, SaleItemInput } from "@shared/schemas/sales";
+import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
 import { Badge, Button, Card, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import { useCurrentDate } from "@/hooks/useCurrentDate";
 import { capitalize, formatQuetzales, SALE_DATE_FORMAT, SALE_TIME_FORMAT } from "@/lib/format";
 import InvoicePreview from "@/pages/sales/InvoicePreview";
@@ -17,19 +20,17 @@ export default function NewSale({
 }: {
   role: Role;
   onHistory: () => void;
-  onAddSale: (sale: SaleRecord) => void;
+  onAddSale?: (sale: SaleRecord) => void;
 }) {
-  const { sellerNames } = useCatalog();
+  const { sellers, sellerNames, categories } = useCatalog();
   const isAdmin = role === "Administrador";
   const now = useCurrentDate();
   const saleTimestamp = `${capitalize(SALE_DATE_FORMAT.format(now))} · ${SALE_TIME_FORMAT.format(now)}`;
 
-  // Inputs left blank/empty by default ("cosas libres")
   const [items, setItems] = useState<SaleItem[]>([
     { id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" },
   ]);
   const [chosenSeller, setSeller] = useState("");
-  // Hasta que se elija uno, se propone el primer vendedor activo
   const seller = chosenSeller || sellerNames[0] || "";
   const [paymentMethod, setPaymentMethod] = useState("Tarjeta");
   const [isInvoiced, setIsInvoiced] = useState(true);
@@ -40,6 +41,57 @@ export default function NewSale({
   const [observations, setObservations] = useState("");
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [createdSale, setCreatedSale] = useState<SaleDetail | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Contador y alerta de facturas del mes (punto 5)
+  const { data: invoiceUsage, refetch: refetchInvoiceUsage } = useApiQuery(
+    "sales:invoice-usage",
+    salesApi.invoiceUsage,
+  );
+
+  // Autocompletar cliente al escribir NIT / CUI (RNF 3.1)
+  const [clientLookupState, setClientLookupState] = useState<{
+    loading: boolean;
+    found: boolean;
+    client: ClientLookup | null;
+  }>({ loading: false, found: false, client: null });
+
+  useEffect(() => {
+    const clean = clientId.trim().toUpperCase();
+    if (!clean || clean === "CF" || clean.length < 3) {
+      setClientLookupState({ loading: false, found: false, client: null });
+      return;
+    }
+
+    let active = true;
+    setClientLookupState((prev) => ({ ...prev, loading: true }));
+
+    const timer = setTimeout(async () => {
+      try {
+        const client = await salesApi.lookupClient(clean);
+        if (!active) return;
+        if (client) {
+          setClientName(client.name);
+          setClientAddress(client.address || "");
+          if (client.taxIdType === "NIT" || client.taxIdType === "CUI") {
+            setIdType(client.taxIdType);
+          }
+          setClientLookupState({ loading: false, found: true, client });
+        } else {
+          setClientLookupState({ loading: false, found: false, client: null });
+        }
+      } catch {
+        if (active) setClientLookupState({ loading: false, found: false, client: null });
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [clientId]);
 
   const total = items.reduce((acc, item) => acc + item.qty * item.price, 0);
   const isCF = clientId.trim().toUpperCase() === "CF";
@@ -56,6 +108,9 @@ export default function NewSale({
     setClientAddress("");
     setObservations("");
     setIsConfirmed(false);
+    setCreatedSale(null);
+    setFormError(null);
+    refetchInvoiceUsage();
   };
 
   const handleFillCF = () => {
@@ -66,64 +121,153 @@ export default function NewSale({
 
   const totalCommission = isAdmin
     ? items.reduce((acc, item) => {
-      const pct = parseFloat(item.commission);
-      return acc + (isNaN(pct) ? 0 : (item.qty * item.price * pct) / 100);
-    }, 0)
+        const pct = parseFloat(item.commission);
+        return acc + (isNaN(pct) ? 0 : (item.qty * item.price * pct) / 100);
+      }, 0)
     : 0;
 
-  const handleConfirmSale = () => {
+  const handleConfirmSale = async () => {
+    setFormError(null);
     const validItems = items.filter((i) => i.desc.trim() !== "" || i.price > 0);
     const resolvedItems = validItems.length > 0 ? validItems : items;
-    const productSummary = resolvedItems.map((i) => i.desc.trim() || "Artículo").join(", ");
-    const primaryCategory = resolvedItems[0]?.cat || "Accesorio";
 
-    const newSaleRecord: SaleRecord = {
-      id: Date.now(),
-      time: saleTimestamp,
-      timestamp: Date.now(),
-      product: productSummary,
-      category: primaryCategory,
-      seller,
-      paymentMethod,
-      amount: total,
-      commission: totalCommission > 0 ? formatQuetzales(totalCommission) : "Pendiente",
-      invoiced: isInvoiced,
-      locked: false,
-      clientName: clientName.trim() || (isCF ? "Consumidor Final" : "Cliente"),
-      clientId: clientId.trim() || "CF",
-      clientAddress: clientAddress.trim(),
-      observations: observations.trim(),
-      items: resolvedItems,
+    // Obtener el vendedor
+    const sellerObj = sellers.find((s) => s.fullName === seller) || sellers[0];
+    if (!sellerObj) {
+      setFormError("No hay vendedores activos registrados en el sistema.");
+      return;
+    }
+
+    // Validar CF >= 2500
+    if (isInvoiced && isCF && total >= 2500) {
+      setFormError("Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.");
+      return;
+    }
+
+    if (isInvoiced && !clientName.trim()) {
+      setFormError("El nombre o razón social del cliente es obligatorio para facturar.");
+      return;
+    }
+
+    const saleItems: SaleItemInput[] = resolvedItems.map((i) => {
+      const catObj = categories.find((c) => c.name === i.cat) || categories[0];
+      const parsedComm = parseFloat(i.commission);
+      const commRate = isAdmin ? (isNaN(parsedComm) ? null : parsedComm) : undefined;
+      return {
+        description: i.desc.trim() || "Artículo",
+        categoryId: catObj?.id ?? 1,
+        quantity: i.qty,
+        unitPrice: i.price,
+        commissionRate: commRate,
+      };
+    });
+
+    const clientPayload = isInvoiced
+      ? {
+          taxIdType: isCF ? ("CF" as const) : idType,
+          taxId: isCF ? "CF" : clientId.trim().toUpperCase(),
+          name: clientName.trim() || (isCF ? "Consumidor Final" : "Cliente"),
+          address: clientAddress.trim() || undefined,
+        }
+      : undefined;
+
+    const payload: CreateSaleInput = {
+      sellerId: sellerObj.id,
+      paymentMethod: paymentMethod as PaymentMethod,
+      isInvoiced,
+      client: clientPayload,
+      observations: observations.trim() || undefined,
+      items: saleItems,
     };
 
-    onAddSale(newSaleRecord);
-    setIsConfirmModalOpen(false);
-    setIsConfirmed(true);
+    setIsSubmitting(true);
+    try {
+      const created = await salesApi.create(payload);
+      setCreatedSale(created);
+
+      // Si existe el callback local temporal, actualizarlo también
+      if (onAddSale) {
+        const productSummary = resolvedItems.map((i) => i.desc.trim() || "Artículo").join(", ");
+        const primaryCategory = resolvedItems[0]?.cat || "Accesorio";
+        onAddSale({
+          id: created.id,
+          time: saleTimestamp,
+          timestamp: Date.now(),
+          product: productSummary,
+          category: primaryCategory,
+          seller,
+          paymentMethod,
+          amount: total,
+          commission: totalCommission > 0 ? formatQuetzales(totalCommission) : "Pendiente",
+          invoiced: isInvoiced,
+          locked: false,
+          clientName: clientPayload?.name,
+          clientId: clientPayload?.taxId,
+          clientAddress: clientPayload?.address,
+          observations: observations.trim(),
+          items: resolvedItems,
+        });
+      }
+
+      setIsConfirmModalOpen(false);
+      setIsConfirmed(true);
+      refetchInvoiceUsage();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al registrar la venta en el servidor";
+      setFormError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  if (isConfirmed) {
+  if (isConfirmed && createdSale) {
     if (isInvoiced) {
       return (
         <InvoicePreview
-          items={items}
-          paymentMethod={paymentMethod}
-          seller={seller}
-          clientId={clientId}
-          idType={idType}
-          clientName={clientName}
-          clientAddress={clientAddress}
-          total={total}
-          observations={observations}
+          saleId={createdSale.id}
+          saleDate={createdSale.soldAt}
+          items={createdSale.items.map((it) => ({
+            id: it.id,
+            desc: it.description,
+            cat: it.categoryName,
+            qty: it.quantity,
+            price: it.unitPrice,
+          }))}
+          paymentMethod={createdSale.paymentMethod}
+          seller={createdSale.sellerName}
+          clientId={createdSale.client?.taxId || clientId || "CF"}
+          idType={createdSale.client?.taxIdType || idType}
+          clientName={createdSale.client?.name || clientName}
+          clientAddress={createdSale.client?.address || clientAddress}
+          total={createdSale.total}
+          observations={createdSale.observations}
           onNewSale={handleResetSale}
         />
       );
     }
-    return <SaleSuccess total={total} onNewSale={handleResetSale} onHistory={onHistory} />;
+    return <SaleSuccess total={createdSale.total} onNewSale={handleResetSale} onHistory={onHistory} />;
   }
 
   return (
     <div className="sale-layout">
       <div className="sale-main screen-stack">
+        {formError && (
+          <div className="cf-warning" style={{ background: "var(--color-danger-soft, #fee2e2)", borderColor: "var(--color-danger, #ef4444)" }}>
+            <Icon name="bell" size="sm" />
+            <span>{formError}</span>
+          </div>
+        )}
+
+        {/* Alerta de límite de facturas del mes (punto 5) */}
+        {invoiceUsage?.isAlert && isInvoiced && (
+          <div className="cf-warning" role="alert" style={{ background: "rgba(245, 158, 11, 0.15)", borderColor: "var(--color-warning, #f59e0b)" }}>
+            <Icon name="bell" size="sm" />
+            <span>
+              <strong>Alerta de facturación ({invoiceUsage.percent}% alcanzado):</strong> Has emitido {invoiceUsage.issued} de {invoiceUsage.limit} facturas este mes. Quedan {invoiceUsage.remaining} facturas disponibles.
+            </span>
+          </div>
+        )}
+
         <Card className="form-card">
           <div className="form-section-title">
             <span>1</span>
@@ -168,10 +312,15 @@ export default function NewSale({
           <div className="invoice-toggle">
             <div>
               <div className="card-title">Facturación</div>
-              <div className="muted small">Se emitirá una factura electrónica FEL</div>
+              <div className="muted small">
+                {invoiceUsage
+                  ? `Facturas este mes: ${invoiceUsage.issued} / ${invoiceUsage.limit} (${invoiceUsage.percent}%)`
+                  : "Emisión de documento de venta"}
+              </div>
             </div>
             <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="¿Facturar esta venta?" />
           </div>
+
           {isInvoiced && (
             <div className="invoice-fields">
               <div className="section-divider" />
@@ -179,9 +328,10 @@ export default function NewSale({
                 <span>3</span>
                 <div>
                   <strong>Datos del cliente</strong>
-                  <small>Información requerida para la factura</small>
+                  <small>Escribe el NIT o CUI para autocompletar clientes frecuentes</small>
                 </div>
               </div>
+
               <div className="client-id-row">
                 <div className="id-type-seg">
                   <UnstyledButton
@@ -207,12 +357,28 @@ export default function NewSale({
                   Consumidor Final (CF)
                 </button>
               </div>
+
+              {clientLookupState.loading && (
+                <div style={{ fontSize: "12px", color: "var(--color-primary)", display: "flex", alignItems: "center", gap: "6px", margin: "4px 0" }}>
+                  <Icon name="history" size="sm" />
+                  <span>Buscando cliente por {idType}...</span>
+                </div>
+              )}
+
+              {clientLookupState.found && clientLookupState.client && (
+                <div style={{ fontSize: "12px", color: "var(--color-success, #10b981)", display: "flex", alignItems: "center", gap: "6px", margin: "4px 0" }}>
+                  <Icon name="check" size="sm" />
+                  <span>Cliente registrado autocompletado: <strong>{clientLookupState.client.name}</strong></span>
+                </div>
+              )}
+
               {isCfWarning && (
                 <div className="cf-warning">
                   <Icon name="bell" size="sm" />
                   <span>Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.</span>
                 </div>
               )}
+
               <div className="form-grid two">
                 <div className="span-two">
                   <TextInput
@@ -232,7 +398,7 @@ export default function NewSale({
                 </div>
                 <div className="span-two">
                   <TextArea
-                    label="Observaciones en factura (opcional)"
+                    label="Observaciones en documento (opcional)"
                     value={observations}
                     onChange={setObservations}
                     placeholder="Ej. Crédito 30 días, referencia de pedido, etc."
@@ -257,6 +423,7 @@ export default function NewSale({
               </div>
             ))}
           </div>
+
           <div className="summary-lines">
             <div>
               <span>Subtotal</span>
@@ -273,24 +440,30 @@ export default function NewSale({
               </div>
             )}
             <div>
-              <span>Factura FEL</span>
+              <span>Facturar</span>
               <Badge tone={isInvoiced ? "success" : "neutral"}>{isInvoiced ? "Sí" : "No"}</Badge>
             </div>
           </div>
+
           <div className="summary-total">
             <span>Total</span>
             <strong>{formatQuetzales(total)}</strong>
           </div>
+
           <Button
             className="full-button"
             icon="check"
-            onClick={() => setIsConfirmModalOpen(true)}
-            disabled={total <= 0}
+            onClick={() => {
+              setFormError(null);
+              setIsConfirmModalOpen(true);
+            }}
+            disabled={total <= 0 || isSubmitting}
           >
-            Confirmar venta
+            {isSubmitting ? "Registrando..." : "Confirmar venta"}
           </Button>
+
           <div className="summary-note">
-            <Icon name="lock" size="sm" /> Revisa los datos antes de confirmar
+            <Icon name="lock" size="sm" /> Venta procesada y almacenada en el servidor
           </div>
         </Card>
       </aside>
@@ -300,7 +473,7 @@ export default function NewSale({
         title="Confirmar venta"
         onClose={() => setIsConfirmModalOpen(false)}
         onConfirm={handleConfirmSale}
-        confirmLabel="Registrar venta"
+        confirmLabel={isSubmitting ? "Guardando..." : "Registrar venta"}
       >
         <div className="confirm-box">
           <div>
@@ -322,14 +495,14 @@ export default function NewSale({
             </div>
           )}
           <div>
-            <span>Factura FEL</span>
+            <span>Factura</span>
             <strong>{isInvoiced ? "Sí" : "No"}</strong>
           </div>
         </div>
         <div className="modal-hint">
           {isInvoiced
-            ? "Al confirmar, la venta se guardará y se generará la factura FEL."
-            : "Al confirmar, la venta se guardará sin factura."}
+            ? "Al confirmar, la venta se registrará en el servidor y se generará el documento de venta listo para imprimir."
+            : "Al confirmar, la venta se guardará en el servidor sin factura."}
         </div>
       </Modal>
     </div>

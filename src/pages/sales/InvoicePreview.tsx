@@ -1,9 +1,20 @@
+import { settingsApi } from "@/api/settings";
 import { Badge, Button, Icon } from "@/components/ui";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import logo from "@/imports/solomotos-logo.png";
 import { formatQuetzales, numberToWords } from "@/lib/format";
-import type { SaleItem } from "@/temporal/localStore";
+
+export type InvoiceItemData = {
+  id: number;
+  desc: string;
+  cat?: string;
+  qty: number;
+  price: number;
+};
 
 export default function InvoicePreview({
+  saleId,
+  saleDate,
   items,
   paymentMethod,
   seller,
@@ -14,8 +25,11 @@ export default function InvoicePreview({
   total,
   observations,
   onNewSale,
+  onClose,
 }: {
-  items: SaleItem[];
+  saleId?: number | string;
+  saleDate?: string;
+  items: InvoiceItemData[];
   paymentMethod: string;
   seller: string;
   clientId: string;
@@ -23,49 +37,77 @@ export default function InvoicePreview({
   clientName: string;
   clientAddress: string;
   total: number;
-  observations: string;
-  onNewSale: () => void;
+  observations?: string | null;
+  onNewSale?: () => void;
+  onClose?: () => void;
 }) {
+  const { data: settings } = useApiQuery("settings:invoice", settingsApi.get);
+  const companyName = settings?.companyName || "SoloMotos Quetzaltenango";
+  const taxId = settings?.taxId || "8214573-6";
+  const address = settings?.address || "7a. calle 4-63, zona 2, Quetzaltenango";
+  const phone = settings?.phone || "+502 7765 4321";
+
   const currentDate = new Date();
-  const formattedDateTime = `${currentDate.toLocaleDateString("es-GT")} · ${currentDate.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit" })}`;
-  const uuid = "DB4A-849F-11EF-8C9A-00163E002C4F";
-  const series = "FEL-A";
-  const dteNumber = String(Math.floor(100 + Math.random() * 900)).padStart(5, "0");
+  const formattedDateTime = saleDate
+    ? new Date(saleDate).toLocaleString("es-GT")
+    : `${currentDate.toLocaleDateString("es-GT")} · ${currentDate.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit" })}`;
+  const docNumber = saleId ? String(saleId).padStart(5, "0") : String(Math.floor(100 + Math.random() * 900)).padStart(5, "0");
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   return (
     <div className="invoice-page">
       <div className="invoice-actions">
-        <div />
         <div>
-          <Button variant="secondary" icon="download">Descargar PDF</Button>
-          <Button icon="print">Imprimir</Button>
-          <Button variant="secondary" onClick={onNewSale}>Registrar otra venta</Button>
+          {onClose && (
+            <Button variant="secondary" icon="chevron" onClick={onClose}>
+              Volver al historial
+            </Button>
+          )}
+        </div>
+        <div>
+          <Button variant="secondary" icon="download" onClick={handlePrint}>
+            Descargar PDF
+          </Button>
+          <Button icon="print" onClick={handlePrint}>
+            Imprimir
+          </Button>
+          {onNewSale && (
+            <Button variant="secondary" onClick={onNewSale}>
+              Registrar otra venta
+            </Button>
+          )}
         </div>
       </div>
+
       <div className="invoice-sheet">
         <div className="invoice-head">
           <div className="invoice-brand">
-            <img className="brand-logo" src={logo} alt="SoloMotos" />
+            <img className="brand-logo" src={logo} alt={companyName} />
             <span>Pasión que te mueve</span>
           </div>
           <div className="invoice-meta">
-            <Badge tone="success">FACTURA FEL</Badge>
-            <strong>No. SM-{dteNumber}</strong>
+            <Badge tone="info">DOCUMENTO DE VENTA</Badge>
+            <strong>No. SM-{docNumber}</strong>
             <span>Fecha: {formattedDateTime}</span>
           </div>
         </div>
+
         <div className="invoice-company">
           <div>
-            <strong>SoloMotos Quetzaltenango</strong>
-            <span>NIT: 8214573-6</span>
-            <span>7a. calle 4-63, zona 2, Quetzaltenango</span>
-            <span>Tel. +502 7765 4321</span>
+            <strong>{companyName}</strong>
+            <span>NIT: {taxId}</span>
+            <span>{address}</span>
+            <span>Tel. {phone}</span>
           </div>
           <div>
             <span>Vendedor</span>
             <strong>{seller}</strong>
           </div>
         </div>
+
         <div className="client-box">
           <div>
             <span>{idType}</span>
@@ -80,6 +122,7 @@ export default function InvoicePreview({
             <strong>{clientAddress || "Ciudad"}</strong>
           </div>
         </div>
+
         <div className="invoice-table">
           <div className="invoice-tr invoice-th">
             <span>Cant.</span>
@@ -92,13 +135,16 @@ export default function InvoicePreview({
               <span>{item.qty}</span>
               <span>
                 <strong>{item.desc || "Artículo"}</strong>
-                <small>{item.cat}</small>
+                {item.cat && <small>{item.cat}</small>}
               </span>
               <span>{formatQuetzales(item.price)}</span>
-              <span><strong>{formatQuetzales(item.qty * item.price)}</strong></span>
+              <span>
+                <strong>{formatQuetzales(item.qty * item.price)}</strong>
+              </span>
             </div>
           ))}
         </div>
+
         <div className="invoice-total">
           <div>
             <span>Método de pago</span>
@@ -113,38 +159,26 @@ export default function InvoicePreview({
             <span>{numberToWords(total)}</span>
           </div>
         </div>
+
         {observations && (
           <div className="invoice-obs">
             <span>Observaciones:</span>
             <span>{observations}</span>
           </div>
         )}
-        <div className="fel-block">
-          <div className="fel-title">
-            <Icon name="file" size="sm" /> Datos de certificación FEL
+
+        <div className="fel-block" style={{ background: "var(--color-surface-soft)", border: "1px dashed var(--color-line)" }}>
+          <div className="fel-title" style={{ color: "var(--color-muted)" }}>
+            <Icon name="file" size="sm" /> Facturación y Certificación SAT
           </div>
-          <div className="fel-grid">
-            <div>
-              <span>Serie</span>
-              <strong>{series}</strong>
-            </div>
-            <div>
-              <span>Número de DTE</span>
-              <strong>{dteNumber}</strong>
-            </div>
-            <div className="fel-uuid">
-              <span>Número de autorización</span>
-              <strong>{uuid}</strong>
-            </div>
-            <div>
-              <span>Fecha y hora de certificación</span>
-              <strong>{formattedDateTime}</strong>
-            </div>
+          <div style={{ fontSize: "12px", color: "var(--color-muted)", lineHeight: 1.5, marginTop: "6px" }}>
+            Documento interno de venta personalizado para SoloMotos. La certificación electrónica ante la SAT (FEL) queda pendiente para la siguiente fase según especificaciones de la empresa.
           </div>
         </div>
+
         <div className="invoice-footer">
           <span>Gracias por preferir SoloMotos.</span>
-          <span>Documento tributario electrónico autorizado por la SAT.</span>
+          <span>Documento comercial interno emitido por el sistema.</span>
         </div>
       </div>
     </div>
