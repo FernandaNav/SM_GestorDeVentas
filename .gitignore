@@ -1,21 +1,59 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Production and build outputs
 dist/
+dist-ssr/
 build/
+out/
+
+# Environment variables & secrets (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Cache & Build tool temp directories
 .cache/
-.env*
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo
-*-debug.log*
+.eslintcache
+
+# Logs
 logs/
 *.log
-.claude-replay.*
-.tmp-*
-/.figma/design-context/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Platform-managed agentplat state, not project source. In the
-# client-initiated single-repo workspace layout (make's `Path: "."` spec) the
-# repo root IS the workspace root, so these land inside this repo rather than
-# beside it.
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and Editor files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary and local platform files
+.tmp-*
+.claude-replay.*
+/.figma/design-context/
 /.plugins/
 /.opencode-skills/
+
+# Configuración local de Claude Code (no es parte del sistema)
+.claude/

@@ -59,7 +59,7 @@ button { cursor: pointer; }
 .login-brand .brand-logo { width: 310px; max-width: 100%; }
 .invoice-brand .brand-logo, .logo-uploader .brand-logo { width: 210px; max-width: 100%; background: var(--color-sidebar); border-radius: var(--radius-sm); padding: 12px; }
 .nav-list { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.nav-item { border: 0; background: transparent; color: #aeb2ba; display: flex; align-items: center; gap: 13px; padding: 12px 14px; border-radius: var(--radius-sm); width: 100%; font-weight: 500; text-align: left; transition: .18s ease; }
+.nav-item { text-decoration: none; box-sizing: border-box; border: 0; background: transparent; color: #aeb2ba; display: flex; align-items: center; gap: 13px; padding: 12px 14px; border-radius: var(--radius-sm); width: 100%; font-weight: 500; text-align: left; transition: .18s ease; }
 .nav-item:hover { color: white; background: var(--color-sidebar-soft); }
 .nav-item.active { color: white; background: var(--color-primary); box-shadow: 0 6px 16px rgb(var(--color-primary-rgb) / 22%); }
 .sidebar-help { border-top: 1px solid #30333a; padding: 20px 8px 4px; display: flex; gap: 10px; align-items: center; }
@@ -686,3 +686,74 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .hero-row:has(.inline-filters) { flex-wrap: wrap; }
 .inline-filters .field { min-width: 0; }
 [data-dark] .picker-popover { border-color: var(--color-line); }
+
+/* Empty state styling */
+.empty-state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 18px;
+  gap: 10px;
+  color: var(--color-muted);
+  min-height: 180px;
+  width: 100%;
+}
+.empty-state-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+}
+.empty-state-title {
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.empty-state-desc {
+  font-size: 11px;
+  max-width: 320px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+@media print {
+  header,
+  aside,
+  nav,
+  .app-sidebar,
+  .app-header,
+  .invoice-actions,
+  .hero-row,
+  .modal-backdrop,
+  button {
+    display: none !important;
+  }
+
+  body,
+  #root,
+  .app-shell,
+  .app-main,
+  .invoice-page {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .invoice-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+}
+
+
