@@ -7,6 +7,8 @@ import { authenticate } from "./middlewares/auth";
 import { errorHandler } from "./middlewares/error-handler";
 import { authRouter } from "./modules/auth/auth.routes";
 import { categoriesRouter } from "./modules/categories/categories.routes";
+import { commissionsRouter } from "./modules/commissions/commissions.routes";
+import { reportsRouter } from "./modules/reports/reports.routes";
 import { closuresRouter } from "./modules/closures/closures.routes";
 import { expensesRouter } from "./modules/expenses/expenses.routes";
 import { salesRouter } from "./modules/sales/sales.routes";
@@ -33,6 +35,8 @@ app.use("/api/categories", categoriesRouter);
 app.use("/api/sales", salesRouter);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/workshop", workshopRouter);
+app.use("/api/reports", reportsRouter);
+app.use("/api/commissions", commissionsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/closures", closuresRouter);
 
