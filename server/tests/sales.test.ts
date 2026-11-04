@@ -232,15 +232,151 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("eliminar ventas", () => {
+    it("una venta de taller devuelve la orden a pendiente de cobro y se puede volver a cobrar", async () => {
+      const { orderId, sale } = await chargedWorkshopOrder();
+      assert.equal((await admin("DELETE", `/sales/${sale.id}`)).status, 204);
+
+      const { data: order } = await admin("GET", `/workshop/${orderId}`);
+      assert.equal(order.status, "Lista para entregar");
+      assert.equal(order.saleId, null);
+      assert.equal(order.finalCost, null);
+      assert.equal(order.deliveredAt, null);
+      assert.ok(order.events.some((event: any) => event.description.includes(`venta #${sale.id}`)));
+
+      const again = await admin("POST", `/workshop/${orderId}/checkout`, { sellerId, paymentMethod: "Tarjeta", isInvoiced: false });
+      assert.equal(again.status, 201);
+      assert.equal(again.data.sale.total, 200);
+    });
+
+    it("una venta sin orden se elimina normalmente", async () => {
+      const { data: created } = await admin("POST", "/sales", counterSale());
+      assert.equal((await admin("DELETE", `/sales/${created.id}`)).status, 204);
+      assert.equal((await admin("GET", `/sales/${created.id}`)).status, 404);
+    });
+  });
+
+  describe("vendedor inactivo", () => {
+    let inactiveSale: any;
+    let inactiveSellerId: number;
+
+    before(async () => {
+      const { data: member } = await admin("POST", "/staff", { fullName: "Ya No Trabaja", type: "Vendedor" });
+      inactiveSellerId = member.id;
+      ({ data: inactiveSale } = await admin("POST", "/sales", { ...counterSale(), sellerId: inactiveSellerId }));
+      await admin("PATCH", `/staff/${inactiveSellerId}/active`, { isActive: false });
+    });
+
+    it("su venta se puede editar sin cambiarle el vendedor", async () => {
+      const { status, data } = await admin("PUT", `/sales/${inactiveSale.id}`, editPayload(inactiveSale, 30));
+      assert.equal(status, 200);
+      assert.equal(data.sellerId, inactiveSellerId);
+      assert.equal(data.total, 30);
+    });
+
+    it("no se le puede asignar otra venta", async () => {
+      const { data: other } = await admin("POST", "/sales", counterSale());
+      const moved = await admin("PUT", `/sales/${other.id}`, { ...editPayload(other, 10), sellerId: inactiveSellerId });
+      assert.equal(moved.status, 400);
+      assert.equal((await admin("POST", "/sales", { ...counterSale(), sellerId: inactiveSellerId })).status, 400);
+    });
+  });
+
+  describe("clientes por NIT o CUI", () => {
+    const invoiced = (taxIdType: string, taxId: string, name: string) => ({
+      ...counterSale(),
+      isInvoiced: true,
+      client: { taxIdType, taxId, name },
+    });
+    const clientCount = async (name: string) =>
+      (await pool.query(`SELECT 1 FROM clients WHERE name = $1`, [name])).rowCount;
+
+    it("encuentra al cliente sin importar guiones ni espacios", async () => {
+      await admin("POST", "/sales", invoiced("NIT", "5489632-1", "Juan"));
+      assert.equal((await admin("GET", "/sales/clients/54896321")).data.name, "Juan");
+      assert.equal((await admin("GET", "/sales/clients/5489632-1")).data.name, "Juan");
+
+      await admin("POST", "/sales", invoiced("CUI", "2345 12345 0101", "Luisa"));
+      assert.equal((await admin("GET", "/sales/clients/2345123450101")).data.name, "Luisa");
+    });
+
+    it("distingue el dígito verificador K sin importar mayúsculas", async () => {
+      await admin("POST", "/sales", invoiced("NIT", "1234567-k", "Rosa"));
+      assert.equal((await admin("GET", "/sales/clients/1234567K")).data.name, "Rosa");
+    });
+
+    it("no crea otro cliente si el NIT viene en otro formato, y la factura guarda lo escrito", async () => {
+      await admin("POST", "/sales", invoiced("NIT", "7654321-0", "Nombre Viejo"));
+      const { data: sale } = await admin("POST", "/sales", invoiced("NIT", "76543210", "Nombre Nuevo"));
+
+      assert.equal(await clientCount("Nombre Viejo"), 0);
+      assert.equal(await clientCount("Nombre Nuevo"), 1);
+      assert.equal(sale.client.taxId, "76543210");
+    });
+  });
+
+  describe("historial paginado", () => {
+    const route = (extra = "") => `/sales?from=2020-01-01&to=2099-12-31${extra}`;
+
+    before(async () => {
+      for (let i = 0; i < 3; i++) await admin("POST", "/sales", counterSale());
+    });
+
+    it("devuelve la página pedida sin repetir ventas", async () => {
+      const first = (await admin("GET", route("&page=1&pageSize=2"))).data;
+      const second = (await admin("GET", route("&page=2&pageSize=2"))).data;
+
+      assert.equal(first.items.length, 2);
+      assert.equal(first.pageSize, 2);
+      assert.equal(first.totalPages, Math.ceil(first.totalItems / 2));
+      const ids = [...first.items, ...second.items].map((sale: any) => sale.id);
+      assert.equal(new Set(ids).size, 4);
+    });
+
+    it("una página de más devuelve la última en vez de una vacía", async () => {
+      const { data } = await admin("GET", route("&page=9999&pageSize=2"));
+      assert.equal(data.page, data.totalPages);
+      assert.ok(data.items.length > 0);
+    });
+
+    it("el total respeta los filtros", async () => {
+      const { data } = await admin("GET", route("&search=Calcoman"));
+      assert.equal(data.totalItems, data.items.length);
+      assert.ok(data.items.every((sale: any) => sale.itemsSummary.includes("Calcoman")));
+      assert.ok(data.totalItems > 0);
+    });
+
+    it("el empleado sigue recibiendo solo lo de hoy y sin comisiones", async () => {
+      const { data } = await employee("GET", route("&pageSize=100"));
+      assert.ok(data.items.length > 0);
+      for (const sale of data.items) {
+        assert.equal(sale.commissionAmount, undefined);
+        assert.equal(sale.hasPendingCommission, undefined);
+      }
+    });
+
+    it("marca las ventas abiertas", async () => {
+      const { data } = await admin("GET", route("&pageSize=1"));
+      assert.equal(data.items[0].isClosed, false);
+    });
+  });
+
   // Va al final: el cierre deja en solo lectura todas las ventas creadas hasta aquí
-  it("rechaza editar una venta cerrada y no toca su orden", async () => {
+  it("una venta cerrada no se edita ni se elimina, su orden no cambia y el historial la marca", async () => {
     const { orderId, sale } = await chargedWorkshopOrder();
     const { data: period } = await admin("GET", "/closures/open");
     const closure = await admin("POST", "/closures", { periodStart: period.periodStart, periodEnd: period.today });
     assert.equal(closure.status, 201);
 
-    const { status } = await admin("PUT", `/sales/${sale.id}`, editPayload(sale, 500));
-    assert.equal(status, 409);
-    assert.equal((await admin("GET", `/workshop/${orderId}`)).data.finalCost, 200);
+    assert.equal((await admin("PUT", `/sales/${sale.id}`, editPayload(sale, 500))).status, 409);
+    assert.equal((await admin("DELETE", `/sales/${sale.id}`)).status, 409);
+
+    const { data: order } = await admin("GET", `/workshop/${orderId}`);
+    assert.equal(order.finalCost, 200);
+    assert.equal(order.status, "Entregada");
+    assert.equal(order.saleId, sale.id);
+
+    const { data: history } = await admin("GET", `/sales?from=${period.today}&to=${period.today}&pageSize=1`);
+    assert.equal(history.items[0].isClosed, true);
   });
 });

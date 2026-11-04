@@ -121,6 +121,17 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     refetchInvoiceUsage();
   };
 
+  // Un NIT distinto es otro cliente: no se conservan los datos que se autocompletaron del anterior
+  const handleClientIdChange = (value: string) => {
+    clearErrors();
+    setClientId(value);
+    if (clientLookupState.found) {
+      setClientName("");
+      setClientAddress("");
+      setClientLookupState({ loading: false, found: false, client: null });
+    }
+  };
+
   const handleFillCF = () => {
     clearErrors();
     setClientId("CF");
@@ -333,7 +344,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
                 <TextInput
                   placeholder={idType === "NIT" ? "Ej. 5489632-1" : "Ej. 2345 12345 0101"}
                   value={clientId}
-                  onChange={onEdit(setClientId)}
+                  onChange={handleClientIdChange}
                   icon="search"
                   error={fieldErrors["client.taxId"]}
                 />

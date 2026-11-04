@@ -4,13 +4,18 @@ import type { SaleDetail, SaleFilters, SaleSummary } from "@shared/schemas/sales
 import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
+import Pagination from "@/components/Pagination";
 import { type DateRange, DateRangePicker, presetRange } from "@/components/dates";
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
 import EditSaleModal from "@/pages/sales/EditSaleModal";
 import InvoicePreview from "@/pages/sales/InvoicePreview";
 import type { SaleRecord } from "@/temporal/localStore";
+
+const PAGE_SIZE = 20;
+const SEARCH_DELAY_MS = 300;
 
 export default function SalesHistory({
   role,
@@ -28,8 +33,10 @@ export default function SalesHistory({
   const { sellers, sellerNames, categories, categoryNames } = useCatalog();
   const isAdmin = role === "Administrador";
 
+  const [page, setPage] = useState(1);
   const [dateRange, setDateRange] = useState<DateRange>(() => presetRange("Últimos 30 días"));
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebouncedValue(searchQuery, SEARCH_DELAY_MS);
   const [filterSeller, setFilterSeller] = useState("Todos los vendedores");
   const [filterCategory, setFilterCategory] = useState("Todas las categorías");
   const [filterPayment, setFilterPayment] = useState("Cualquier pago");
@@ -43,6 +50,14 @@ export default function SalesHistory({
   const [deletingSaleId, setDeletingSaleId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
+  /** Envuelve un setter de filtro: al cambiar lo que se busca se vuelve a la primera página. */
+  const onFilter =
+    <Value,>(setValue: (value: Value) => void) =>
+    (value: Value) => {
+      setPage(1);
+      setValue(value);
+    };
 
   const toIsoDate = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -76,8 +91,8 @@ export default function SalesHistory({
         filters.hasPendingCommission = true;
       }
     }
-    if (searchQuery.trim()) {
-      filters.search = searchQuery.trim();
+    if (debouncedSearch.trim()) {
+      filters.search = debouncedSearch.trim();
     }
     return filters;
   }, [
@@ -88,7 +103,7 @@ export default function SalesHistory({
     filterPayment,
     filterStatus,
     filterPendingCommission,
-    searchQuery,
+    debouncedSearch,
     sellers,
     categories,
   ]);
@@ -97,17 +112,16 @@ export default function SalesHistory({
 
   // Cargar ventas de la API
   const {
-    data: serverSales,
+    data: salesPage,
     loading,
     error,
     refetch,
-  } = useApiQuery(`sales:list:${queryKey}`, () => salesApi.list(activeFilters));
+  } = useApiQuery(`sales:list:${queryKey}:${page}`, () => salesApi.list(activeFilters, page, PAGE_SIZE));
 
   // Contador de facturas del mes (punto 5)
   const { data: invoiceUsage } = useApiQuery("sales:invoice-usage", salesApi.invoiceUsage);
 
-  // Usar datos del servidor o fallback local si no hay conexión
-  const displayedSales: SaleSummary[] = serverSales ?? [];
+  const displayedSales: SaleSummary[] = salesPage?.items ?? [];
 
   const handleOpenInvoice = async (saleId: number) => {
     setLoadingInvoiceId(saleId);
@@ -247,34 +261,34 @@ export default function SalesHistory({
             placeholder="Buscar por producto, cliente, vendedor..."
             icon="search"
             value={searchQuery}
-            onChange={setSearchQuery}
+            onChange={onFilter(setSearchQuery)}
           />
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <DateRangePicker value={dateRange} onChange={onFilter(setDateRange)} />
           <Select
             value={filterSeller}
             options={["Todos los vendedores", ...sellerNames]}
-            onChange={setFilterSeller}
+            onChange={onFilter(setFilterSeller)}
           />
           <Select
             value={filterCategory}
             options={["Todas las categorías", ...categoryNames]}
-            onChange={setFilterCategory}
+            onChange={onFilter(setFilterCategory)}
           />
           <Select
             value={filterPayment}
             options={["Cualquier pago", "Efectivo", "Transferencia", "Tarjeta"]}
-            onChange={setFilterPayment}
+            onChange={onFilter(setFilterPayment)}
           />
           <Select
             value={filterStatus}
             options={["Cualquier estado", "Facturada", "No facturada"]}
-            onChange={setFilterStatus}
+            onChange={onFilter(setFilterStatus)}
           />
           <label className="filter-check">
             <input
               type="checkbox"
               checked={filterPendingCommission}
-              onChange={(e) => setFilterPendingCommission(e.target.checked)}
+              onChange={(e) => onFilter(setFilterPendingCommission)(e.target.checked)}
             />
             <span>Comisión pendiente</span>
           </label>
@@ -362,7 +376,8 @@ export default function SalesHistory({
                               }}
                             />
                           )}
-                          {isAdmin && (
+                          {isAdmin && row.isClosed && <Badge tone="neutral">Período cerrado</Badge>}
+                          {isAdmin && !row.isClosed && (
                             <>
                               <IconButton
                                 icon="edit"
@@ -383,9 +398,16 @@ export default function SalesHistory({
                 </tbody>
               </table>
             </div>
-            <div className="pagination">
-              <span>Mostrando {displayedSales.length} ventas</span>
-            </div>
+            {salesPage && (
+              <Pagination
+                page={salesPage.page}
+                pageSize={salesPage.pageSize}
+                totalItems={salesPage.totalItems}
+                totalPages={salesPage.totalPages}
+                onPageChange={setPage}
+                noun="ventas"
+              />
+            )}
           </>
         )}
       </Card>
@@ -419,7 +441,7 @@ export default function SalesHistory({
         <div style={{ fontSize: "12px", color: "var(--color-muted)", background: "var(--color-surface-soft)", padding: "10px", borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", gap: "6px" }}>
           <Icon name="lock" size="sm" />
           <span>
-            Esta acción no se puede deshacer y quedará registrada en la bitácora de auditoría con tu usuario y rol de Administrador.
+            Esta acción no se puede deshacer y quedará registrada en la bitácora de auditoría con tu usuario y rol de Administrador. Si la venta salió de una orden de taller, la orden vuelve a "Lista para entregar" para cobrarse de nuevo.
           </span>
         </div>
       </Modal>

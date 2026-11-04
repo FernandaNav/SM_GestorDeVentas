@@ -6,6 +6,10 @@ export const todayInGuatemala = () => GUATEMALA_DAY.format(new Date());
 /** Día de Guatemala (AAAA-MM-DD) al que pertenece un momento guardado en la base. */
 export const businessDayOf = (moment: Date | string) => GUATEMALA_DAY.format(new Date(moment));
 
+/** Expresión SQL: ese momento cae dentro de un período ya cerrado. */
+export const inClosedPeriod = (column: string) =>
+  `EXISTS (SELECT 1 FROM closures cl WHERE business_date(${column}) BETWEEN cl.period_start AND cl.period_end)`;
+
 /**
  * Condición SQL "la columna cae entre dos días de Guatemala (ambos incluidos)".
  * Se escribe como rango sobre la columna (y no con business_date(columna)) para

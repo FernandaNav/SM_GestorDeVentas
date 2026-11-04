@@ -1,7 +1,7 @@
 import type { DateRange } from "@shared/schemas/common";
 import type { CommissionFilters, CommissionItem, CommissionSellerSummary } from "@shared/schemas/commissions";
 import type { Queryable } from "../../db/pool";
-import { betweenBusinessDays } from "../../lib/dates";
+import { betweenBusinessDays, inClosedPeriod } from "../../lib/dates";
 
 /** Totales por vendedor en el rango; incluye a los vendedores activos aunque no hayan vendido. */
 export async function findSellerSummaries(db: Queryable, range: DateRange): Promise<CommissionSellerSummary[]> {
@@ -45,9 +45,7 @@ const ITEM_COLUMNS = `
   i.subtotal,
   i.commission_rate AS "commissionRate",
   i.commission_amount AS "commissionAmount",
-  EXISTS (
-    SELECT 1 FROM closures cl WHERE business_date(s.sold_at) BETWEEN cl.period_start AND cl.period_end
-  ) AS "isClosed"`;
+  ${inClosedPeriod("s.sold_at")} AS "isClosed"`;
 
 const ITEM_FROM = `
   FROM sale_items i

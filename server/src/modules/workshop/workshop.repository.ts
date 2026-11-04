@@ -140,6 +140,18 @@ export async function updateFinalCostBySale(db: Queryable, saleId: number, final
   return rows[0]?.id;
 }
 
+/** Deshace el cobro de la orden que generó esta venta. Devuelve su id, o undefined si la venta no viene de taller. */
+export async function reopenOrderOfSale(db: Queryable, saleId: number): Promise<number | undefined> {
+  const { rows } = await db.query<{ id: number }>(
+    `UPDATE workshop_orders
+     SET status = 'Lista para entregar', sale_id = NULL, final_cost = NULL, delivered_at = NULL
+     WHERE sale_id = $1
+     RETURNING id`,
+    [saleId],
+  );
+  return rows[0]?.id;
+}
+
 export async function insertEvent(db: Queryable, orderId: number, description: string, createdBy: number) {
   await db.query(`INSERT INTO workshop_order_events (order_id, description, created_by) VALUES ($1, $2, $3)`, [
     orderId,

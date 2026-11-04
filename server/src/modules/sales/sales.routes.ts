@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { idParamSchema } from "@shared/schemas/common";
+import { idParamSchema, paginationSchema } from "@shared/schemas/common";
 import { createSaleSchema, saleFiltersSchema, updateSaleSchema } from "@shared/schemas/sales";
 import { currentUser, requireRole } from "../../middlewares/auth";
 import * as salesService from "./sales.service";
@@ -30,7 +30,8 @@ salesRouter.get("/clients/:taxId", async (req, res) => {
 // Consulta de historial con filtros. El empleado siempre recibe solo hoy (RNF 1.3).
 salesRouter.get("/", async (req, res) => {
   const filters = saleFiltersSchema.parse(req.query);
-  res.json(await salesService.listSales(filters, currentUser(req).role));
+  const pagination = paginationSchema.parse(req.query);
+  res.json(await salesService.listSales(filters, pagination, currentUser(req).role));
 });
 
 salesRouter.get("/:id", async (req, res) => {

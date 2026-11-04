@@ -37,6 +37,7 @@ export default function EditSaleModal({
   const [error, setError] = useState<string | null>(null);
 
   const [sellerId, setSellerId] = useState<number>(0);
+  const [originalSeller, setOriginalSeller] = useState<{ id: number; fullName: string } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>("Efectivo");
   const [isInvoiced, setIsInvoiced] = useState(false);
   const [taxIdType, setTaxIdType] = useState<"NIT" | "CUI">("NIT");
@@ -57,6 +58,7 @@ export default function EditSaleModal({
       .then((detail: SaleDetail) => {
         if (!active) return;
         setSellerId(detail.sellerId);
+        setOriginalSeller({ id: detail.sellerId, fullName: detail.sellerName });
         setPaymentMethod(detail.paymentMethod);
         setIsInvoiced(detail.isInvoiced);
         if (detail.client) {
@@ -186,8 +188,11 @@ export default function EditSaleModal({
     }
   };
 
-  const sellerOptions = sellers.map((s) => s.fullName);
-  const currentSellerName = sellers.find((s) => s.id === sellerId)?.fullName ?? sellerOptions[0] ?? "";
+  // El catálogo solo trae vendedores activos; el de la venta se conserva aunque ya esté inactivo
+  const sellerChoices: { id: number; fullName: string }[] =
+    originalSeller && !sellers.some((s) => s.id === originalSeller.id) ? [...sellers, originalSeller] : sellers;
+  const sellerOptions = sellerChoices.map((s) => s.fullName);
+  const currentSellerName = sellerChoices.find((s) => s.id === sellerId)?.fullName ?? "";
 
   return (
     <Modal
@@ -213,7 +218,7 @@ export default function EditSaleModal({
               value={currentSellerName}
               options={sellerOptions}
               onChange={(name) => {
-                const found = sellers.find((s) => s.fullName === name);
+                const found = sellerChoices.find((s) => s.fullName === name);
                 if (found) setSellerId(found.id);
               }}
             />

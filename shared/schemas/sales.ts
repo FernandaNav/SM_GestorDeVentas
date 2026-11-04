@@ -148,6 +148,8 @@ export type SaleSummary = {
   itemsSummary: string;
   commissionAmount?: number;
   hasPendingCommission?: boolean;
+  /** Su período ya se cerró: queda en solo lectura (RF 7.2) */
+  isClosed: boolean;
 };
 
 export type SaleItem = {
