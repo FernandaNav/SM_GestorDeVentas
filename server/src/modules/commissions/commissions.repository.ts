@@ -1,7 +1,7 @@
 import type { DateRange } from "@shared/schemas/common";
 import type { CommissionFilters, CommissionItem, CommissionSellerSummary } from "@shared/schemas/commissions";
 import type { Queryable } from "../../db/pool";
-import { betweenBusinessDays } from "../../lib/dates";
+import { betweenBusinessDays, inClosedPeriod } from "../../lib/dates";
 
 /** Totales por vendedor en el rango; incluye a los vendedores activos aunque no hayan vendido. */
 export async function findSellerSummaries(db: Queryable, range: DateRange): Promise<CommissionSellerSummary[]> {
@@ -45,9 +45,7 @@ const ITEM_COLUMNS = `
   i.subtotal,
   i.commission_rate AS "commissionRate",
   i.commission_amount AS "commissionAmount",
-  EXISTS (
-    SELECT 1 FROM closures cl WHERE business_date(s.sold_at) BETWEEN cl.period_start AND cl.period_end
-  ) AS "isClosed"`;
+  ${inClosedPeriod("s.sold_at")} AS "isClosed"`;
 
 const ITEM_FROM = `
   FROM sale_items i
@@ -55,16 +53,27 @@ const ITEM_FROM = `
   JOIN staff st ON st.id = s.seller_id
   JOIN categories c ON c.id = i.category_id`;
 
-/** Qué vendió cada vendedor y cuánta comisión generó (RF 3.3). */
-export async function findItems(db: Queryable, filters: CommissionFilters): Promise<CommissionItem[]> {
+const ITEM_WHERE = `
+  WHERE ${betweenBusinessDays("s.sold_at", "$1", "$2")}
+    AND ($3::int IS NULL OR s.seller_id = $3)
+    AND ($4::boolean = false OR i.commission_rate IS NULL)`;
+
+const itemParams = (filters: CommissionFilters) => [filters.from, filters.to, filters.sellerId ?? null, filters.status === "pendientes"];
+
+export async function countItems(db: Queryable, filters: CommissionFilters): Promise<number> {
+  const { rows } = await db.query<{ total: number }>(`SELECT count(*)::int AS total ${ITEM_FROM} ${ITEM_WHERE}`, itemParams(filters));
+  return rows[0].total;
+}
+
+/** Qué vendió cada vendedor y cuánta comisión generó (RF 3.3), una página a la vez. */
+export async function findItems(db: Queryable, filters: CommissionFilters, limit: number, offset: number): Promise<CommissionItem[]> {
   const { rows } = await db.query<CommissionItem>(
     `SELECT ${ITEM_COLUMNS}
      ${ITEM_FROM}
-     WHERE ${betweenBusinessDays("s.sold_at", "$1", "$2")}
-       AND ($3::int IS NULL OR s.seller_id = $3)
-       AND ($4::boolean = false OR i.commission_rate IS NULL)
-     ORDER BY s.sold_at DESC, i.id`,
-    [filters.from, filters.to, filters.sellerId ?? null, filters.status === "pendientes"],
+     ${ITEM_WHERE}
+     ORDER BY s.sold_at DESC, i.id
+     LIMIT $5 OFFSET $6`,
+    [...itemParams(filters), limit, offset],
   );
   return rows;
 }

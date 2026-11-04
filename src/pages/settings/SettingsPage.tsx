@@ -9,12 +9,10 @@ import { Button, Card, Icon, Select, TextArea, TextInput } from "@/components/ui
 import { useApiQuery } from "@/hooks/useApiQuery";
 import logo from "@/imports/solomotos-logo.png";
 import { type Accent, ACCENTS } from "@/layout/theme";
+import { issuesToErrors } from "@/lib/validation";
 
 type Errors = Record<string, string>;
 type Status = { ok?: string; error?: string };
-
-const issuesToErrors = (issues: { path: (string | number)[]; message: string }[]): Errors =>
-  Object.fromEntries(issues.map((issue) => [issue.path.join("."), issue.message]));
 
 export default function SettingsPage({
   dark,

@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { CF_MAX_INVOICE_TOTAL, PAYMENT_METHODS, type PaymentMethod, type TaxIdType } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, PAYMENT_METHODS, type PaymentMethod } from "@shared/constants";
 import { createSaleSchema } from "@shared/schemas/sales";
 import { workshopCheckoutSchema, type WorkshopCheckoutInput, type WorkshopOrderDetail } from "@shared/schemas/workshop";
 import { ApiError } from "@/api/client";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
 import { Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
+import { useClientLookup } from "@/hooks/useClientLookup";
 import { formatQuetzales } from "@/lib/format";
+import { formatTaxId } from "@/lib/taxId";
+import { issuesToErrors } from "@/lib/validation";
+import ClientLookupHint from "@/pages/sales/ClientLookupHint";
+
+const CHOOSE_SELLER = "Elige quién cobra";
 
 type Props = {
   order: WorkshopOrderDetail;
@@ -21,7 +27,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const [sellerName, setSellerName] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [isInvoiced, setIsInvoiced] = useState(false);
-  const [taxIdType, setTaxIdType] = useState<TaxIdType>("NIT");
+  const [taxIdType, setTaxIdType] = useState<"NIT" | "CUI">("NIT");
   const [taxId, setTaxId] = useState("");
   const [clientName, setClientName] = useState(order.clientName);
   const [clientAddress, setClientAddress] = useState("");
@@ -29,12 +35,40 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const seller = sellers.find((s) => s.fullName === sellerName) ?? sellers[0];
+  // La comisión depende de quién cobró: solo se da por hecho si no hay a quién más elegir
+  const seller = sellers.find((s) => s.fullName === sellerName) ?? (sellers.length === 1 ? sellers[0] : undefined);
   const total = order.itemsTotal;
-  const showCfWarning = isInvoiced && taxIdType === "CF" && total >= CF_MAX_INVOICE_TOTAL;
+  const isCF = taxId === "CF";
+  const showCfWarning = isInvoiced && isCF && total >= CF_MAX_INVOICE_TOTAL;
+
+  // Autocompletar cliente al escribir NIT / CUI, igual que en Nueva venta (RNF 3.1)
+  const clientLookup = useClientLookup(isInvoiced ? taxId : "", (client) => {
+    setClientName(client.name);
+    setClientAddress(client.address || "");
+    if (client.taxIdType === "NIT" || client.taxIdType === "CUI") {
+      setTaxIdType(client.taxIdType);
+      setTaxId(formatTaxId(client.taxIdType, client.taxId));
+    }
+  });
+
+  // Un NIT distinto es otro cliente: se vuelve al de la orden en vez de conservar lo que se llenó solo
+  const handleTaxIdChange = (value: string) => {
+    const next = formatTaxId(taxIdType, value);
+    if (next === taxId) return;
+    setTaxId(next);
+    if (clientLookup.client || isCF) {
+      setClientName(order.clientName);
+      setClientAddress("");
+      clientLookup.clear();
+    }
+  };
+
+  const handleTaxIdTypeChange = (type: "NIT" | "CUI") => {
+    setTaxIdType(type);
+    setTaxId(isCF ? "" : formatTaxId(type, taxId));
+  };
 
   const handleFillCF = () => {
-    setTaxIdType("CF");
     setTaxId("CF");
     setClientName("Consumidor Final");
     setClientAddress("Ciudad");
@@ -45,7 +79,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
       sellerId: seller?.id,
       paymentMethod,
       isInvoiced,
-      client: isInvoiced ? { taxIdType, taxId, name: clientName, address: clientAddress } : undefined,
+      client: isInvoiced ? { taxIdType: isCF ? ("CF" as const) : taxIdType, taxId, name: clientName, address: clientAddress } : undefined,
       observations: observations.trim() || undefined,
     };
     const parsed = workshopCheckoutSchema.safeParse(input);
@@ -61,7 +95,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
     });
     if (!parsed.success || !saleCheck.success) {
       const issues = [...(parsed.success ? [] : parsed.error.issues), ...(saleCheck.success ? [] : saleCheck.error.issues)];
-      setErrors(Object.fromEntries(issues.map((issue) => [issue.path.join("."), issue.message])));
+      setErrors(issuesToErrors(issues));
       return;
     }
     setSaving(true);
@@ -90,7 +124,12 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
 
       <div className="form-grid two" style={{ marginTop: 16 }}>
         <div className="span-two">
-          <Select label="Cobra (vendedor)" value={seller?.fullName ?? ""} options={sellers.map((s) => s.fullName)} onChange={setSellerName} />
+          <Select
+            label="Cobra (vendedor)"
+            value={seller?.fullName ?? CHOOSE_SELLER}
+            options={[...(seller ? [] : [CHOOSE_SELLER]), ...sellers.map((s) => s.fullName)]}
+            onChange={setSellerName}
+          />
           {(errors.sellerId || sellers.length === 0) && (
             <span className="field-error">{sellers.length === 0 ? "No hay vendedores activos; agrégalos en Personal" : errors.sellerId}</span>
           )}
@@ -117,11 +156,8 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
               {(["NIT", "CUI"] as const).map((type) => (
                 <UnstyledButton
                   key={type}
-                  className={taxIdType === type ? "id-type-btn selected" : "id-type-btn"}
-                  onClick={() => {
-                    setTaxIdType(type);
-                    if (taxId.toUpperCase() === "CF") setTaxId("");
-                  }}
+                  className={!isCF && taxIdType === type ? "id-type-btn selected" : "id-type-btn"}
+                  onClick={() => handleTaxIdTypeChange(type)}
                 >
                   {type}
                 </UnstyledButton>
@@ -130,13 +166,14 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
             <TextInput
               placeholder={taxIdType === "CUI" ? "Ej. 2345 12345 0101" : "Ej. 5489632-1"}
               value={taxId}
-              onChange={setTaxId}
+              onChange={handleTaxIdChange}
               error={errors["client.taxId"]}
             />
             <button type="button" className="cf-btn" onClick={handleFillCF}>
               CF
             </button>
           </div>
+          <ClientLookupHint loading={clientLookup.loading} client={clientLookup.client} idType={taxIdType} />
           {showCfWarning && (
             <div className="cf-warning">
               <Icon name="bell" size="sm" />

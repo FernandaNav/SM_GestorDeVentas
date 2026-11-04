@@ -2,7 +2,7 @@ import type { Role } from "@shared/constants";
 import type { SessionUser } from "@shared/schemas/auth";
 import type { Queryable } from "../../db/pool";
 
-type UserRow = SessionUser & { passwordHash: string };
+export type UserRow = SessionUser & { passwordHash: string };
 
 const USER_COLUMNS = `id, username, role, password_hash AS "passwordHash"`;
 
@@ -13,6 +13,11 @@ export async function findUserByRole(db: Queryable, role: Role): Promise<UserRow
 
 export async function findUserById(db: Queryable, id: number): Promise<SessionUser | undefined> {
   const { rows } = await db.query<SessionUser>("SELECT id, username, role FROM users WHERE id = $1", [id]);
+  return rows[0];
+}
+
+export async function findUserWithHashById(db: Queryable, id: number): Promise<UserRow | undefined> {
+  const { rows } = await db.query<UserRow>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]);
   return rows[0];
 }
 

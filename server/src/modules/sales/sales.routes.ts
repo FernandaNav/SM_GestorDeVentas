@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { idParamSchema } from "@shared/schemas/common";
-import { createSaleSchema, saleFiltersSchema, updateSaleSchema } from "@shared/schemas/sales";
+import { idParamSchema, paginationSchema } from "@shared/schemas/common";
+import { createSaleSchema, deleteSaleSchema, deletedSaleFiltersSchema, saleFiltersSchema, updateSaleSchema } from "@shared/schemas/sales";
 import { currentUser, requireRole } from "../../middlewares/auth";
 import * as salesService from "./sales.service";
 
@@ -30,7 +30,15 @@ salesRouter.get("/clients/:taxId", async (req, res) => {
 // Consulta de historial con filtros. El empleado siempre recibe solo hoy (RNF 1.3).
 salesRouter.get("/", async (req, res) => {
   const filters = saleFiltersSchema.parse(req.query);
-  res.json(await salesService.listSales(filters, currentUser(req).role));
+  const pagination = paginationSchema.parse(req.query);
+  res.json(await salesService.listSales(filters, pagination, currentUser(req).role));
+});
+
+// Historial de ventas eliminadas, con lo que tenían al borrarse. Va antes de /:id.
+salesRouter.get("/deleted", requireRole("Administrador"), async (req, res) => {
+  const filters = deletedSaleFiltersSchema.parse(req.query);
+  const pagination = paginationSchema.parse(req.query);
+  res.json(await salesService.listDeletedSales(filters, pagination));
 });
 
 salesRouter.get("/:id", async (req, res) => {
@@ -49,7 +57,8 @@ salesRouter.put("/:id", requireRole("Administrador"), async (req, res) => {
 // Eliminar solo el Administrador, con bitácora (RF 6.2)
 salesRouter.delete("/:id", requireRole("Administrador"), async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
-  await salesService.deleteSale(id, req);
+  const { reason } = deleteSaleSchema.parse(req.body ?? {});
+  await salesService.deleteSale(id, req, reason);
   res.status(204).end();
 });
 

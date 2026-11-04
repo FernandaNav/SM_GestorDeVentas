@@ -2,8 +2,10 @@ import { z } from "zod";
 import {
   CF_MAX_INVOICE_TOTAL,
   PAYMENT_METHODS,
+  SALE_ITEM_ORIGINS,
   TAX_ID_TYPES,
   type PaymentMethod,
+  type Role,
   type SaleItemOrigin,
   type TaxIdType,
 } from "../constants";
@@ -50,32 +52,46 @@ export const saleClientSchema = z
   });
 export type SaleClientInput = z.infer<typeof saleClientSchema>;
 
+const saleFields = {
+  sellerId: z.number({ message: "Elige el vendedor" }).int().positive("Elige el vendedor"),
+  paymentMethod: z.enum(PAYMENT_METHODS, { message: "Elige el método de pago" }),
+  isInvoiced: z.boolean(),
+  client: saleClientSchema.optional(),
+  observations: z.string().trim().max(500).optional(),
+};
+
+function checkInvoiceClient(
+  sale: { isInvoiced: boolean; client?: SaleClientInput; items: Pick<SaleItemInput, "quantity" | "unitPrice">[] },
+  ctx: z.RefinementCtx,
+) {
+  if (!sale.isInvoiced) return;
+  if (!sale.client) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["client"], message: "Los datos del cliente son obligatorios para facturar" });
+    return;
+  }
+  if (sale.client.taxIdType === "CF" && calculateTotal(sale.items) >= CF_MAX_INVOICE_TOTAL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["client", "taxId"],
+      message: `Desde Q${CF_MAX_INVOICE_TOTAL.toLocaleString("es-GT")} la SAT exige NIT o CUI del comprador`,
+    });
+  }
+}
+
+const saleItemsOf = <Item extends z.ZodTypeAny>(item: Item) => z.array(item).min(1, "Agrega al menos un artículo").max(50);
+
 export const createSaleSchema = z
-  .object({
-    sellerId: z.number().int().positive("Elige el vendedor"),
-    paymentMethod: z.enum(PAYMENT_METHODS, { message: "Elige el método de pago" }),
-    isInvoiced: z.boolean(),
-    client: saleClientSchema.optional(),
-    observations: z.string().trim().max(500).optional(),
-    items: z.array(saleItemInputSchema).min(1, "Agrega al menos un artículo").max(50),
-  })
-  .superRefine((sale, ctx) => {
-    if (!sale.isInvoiced) return;
-    if (!sale.client) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["client"], message: "Los datos del cliente son obligatorios para facturar" });
-      return;
-    }
-    if (sale.client.taxIdType === "CF" && calculateTotal(sale.items) >= CF_MAX_INVOICE_TOTAL) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["client", "taxId"],
-        message: `Desde Q${CF_MAX_INVOICE_TOTAL.toLocaleString("es-GT")} la SAT exige NIT o CUI del comprador`,
-      });
-    }
-  });
+  .object({ ...saleFields, items: saleItemsOf(saleItemInputSchema) })
+  .superRefine(checkInvoiceClient);
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
-export const updateSaleSchema = createSaleSchema;
-export type UpdateSaleInput = CreateSaleInput;
+
+/** Al editar, cada artículo conserva su origen para no perder lo que se cobró en taller. */
+const editedSaleItemSchema = saleItemInputSchema.extend({ origin: z.enum(SALE_ITEM_ORIGINS).optional() });
+
+export const updateSaleSchema = z
+  .object({ ...saleFields, items: saleItemsOf(editedSaleItemSchema) })
+  .superRefine(checkInvoiceClient);
+export type UpdateSaleInput = z.infer<typeof updateSaleSchema>;
 
 export const saleFiltersSchema = z.object({
   from: z.string().date("Fecha inválida (usa AAAA-MM-DD)").optional(),
@@ -133,6 +149,8 @@ export type SaleSummary = {
   itemsSummary: string;
   commissionAmount?: number;
   hasPendingCommission?: boolean;
+  /** Su período ya se cerró: queda en solo lectura (RF 7.2) */
+  isClosed: boolean;
 };
 
 export type SaleItem = {
@@ -161,3 +179,34 @@ export type SaleDetail = {
   items: SaleItem[];
 };
 
+
+// ─── ventas eliminadas ──────────────────────────────────────────────────────
+
+/** Motivo opcional al eliminar una venta; queda en la bitácora junto con la copia de la venta. */
+export const deleteSaleSchema = z.object({
+  reason: z.string().trim().max(300, "Máximo 300 caracteres").optional(),
+});
+export type DeleteSaleInput = z.infer<typeof deleteSaleSchema>;
+
+/** ?from=AAAA-MM-DD&to=AAAA-MM-DD (fecha en que se eliminó) &search=... */
+export const deletedSaleFiltersSchema = z
+  .object({
+    from: z.string().date("Fecha inválida (usa AAAA-MM-DD)"),
+    to: z.string().date("Fecha inválida (usa AAAA-MM-DD)"),
+    search: z.string().trim().max(100, "Máximo 100 caracteres").optional(),
+  })
+  .refine(({ from, to }) => from <= to, { message: "La fecha inicial debe ser anterior a la final", path: ["to"] });
+export type DeletedSaleFilters = z.infer<typeof deletedSaleFiltersSchema>;
+
+/**
+ * Venta eliminada tal como estaba al borrarse. Sale de la copia que guarda la bitácora
+ * (RNF 1.2), así que también aparecen las que se eliminaron antes de existir esta vista.
+ */
+export type DeletedSale = {
+  auditId: number;
+  saleId: number;
+  deletedAt: string;
+  deletedByRole: Role | null;
+  reason: string | null;
+  sale: SaleDetail;
+};

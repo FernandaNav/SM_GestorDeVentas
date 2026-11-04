@@ -1,7 +1,17 @@
 import { useCatalog } from "@/catalog/CatalogContext";
+import MoneyInput from "@/components/MoneyInput";
 import { Icon } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
-import type { SaleItem } from "@/temporal/localStore";
+
+/** Una fila del formulario de venta, como se está escribiendo. */
+export type SaleItem = {
+  id: number;
+  desc: string;
+  cat: string;
+  qty: number;
+  price: number;
+  commission: string;
+};
 
 export default function ItemsTable({
   items,
@@ -87,12 +97,7 @@ export default function ItemsTable({
                   />
                 </td>
                 <td>
-                  <input
-                    className="cell-input"
-                    value={item.price === 0 ? "" : item.price.toString()}
-                    onChange={(e) => updateItem(item.id, "price", Number(e.target.value.replace(/[^0-9.]/g, "")))}
-                    placeholder="0.00"
-                  />
+                  <MoneyInput value={item.price} onChange={(price) => updateItem(item.id, "price", price)} ariaLabel="Precio unitario" />
                 </td>
                 <td className="cell-amount">{formatQuetzales(subtotal)}</td>
                 {isAdmin && (

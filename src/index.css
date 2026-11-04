@@ -268,9 +268,9 @@ tr:last-child td { border-bottom: 0; }
 .logo-uploader { display: flex; align-items: center; gap: 14px; background: var(--color-surface-soft); padding: 16px; border-radius: var(--radius-sm); margin-top: 20px; }.logo-uploader strong, .logo-uploader span { display: block; }.logo-uploader span { color: var(--color-muted); font-size: 9px; margin: 4px 0 10px; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgb(10 12 17 / 58%); z-index: 100; display: grid; place-items: center; padding: 20px; }
-.modal { width: min(520px, 100%); background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); overflow: hidden; }
+.modal { width: min(520px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); overflow: hidden; }
 .modal-title { font-size: 18px; font-weight: 700; padding: 22px 24px; border-bottom: 1px solid var(--color-line); }
-.modal-body { padding: 24px; }.modal-actions { padding: 16px 24px; background: var(--color-surface-soft); display: flex; justify-content: flex-end; gap: 10px; }
+.modal-body { padding: 24px; overflow-y: auto; }.modal-actions { padding: 16px 24px; background: var(--color-surface-soft); display: flex; justify-content: flex-end; gap: 10px; }
 .confirm-box { background: var(--color-surface-soft); border-radius: var(--radius-sm); padding: 6px 14px; }.confirm-box > div { display: flex; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--color-line); }.confirm-box > div:last-child { border: 0; }.confirm-box span { color: var(--color-muted); font-size: 10px; }.modal-hint { color: var(--color-muted); font-size: 10px; margin-top: 15px; }
 .warning-box { display: flex; gap: 12px; align-items: center; color: var(--color-danger); background: var(--color-danger-soft); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px; font-size: 11px; line-height: 1.5; }
 
@@ -329,6 +329,7 @@ tr:last-child td { border-bottom: 0; }
 .cf-btn { border: 1px solid var(--color-line); background: var(--color-surface); border-radius: var(--radius-sm); min-height: 42px; padding: 0 12px; font: inherit; font-size: 11px; font-weight: 600; color: var(--color-text); cursor: pointer; white-space: nowrap; flex: none; transition: .15s; }
 .cf-btn:hover { background: var(--color-surface-soft); border-color: var(--color-primary); color: var(--color-primary); }
 .cf-warning { display: flex; gap: 9px; align-items: flex-start; background: var(--color-warning-soft); color: var(--color-warning); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 11px; margin-bottom: 14px; }
+.form-error { background: var(--color-danger-soft); color: var(--color-danger); }
 
 /* ── date readonly ────────────────────────────────────────────────────────── */
 .readonly-datetime { display: flex; flex-direction: column; gap: 3px; min-height: 42px; justify-content: center; padding: 0 2px; }

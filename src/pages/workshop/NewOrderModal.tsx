@@ -3,6 +3,7 @@ import { createWorkshopOrderSchema, type CreateWorkshopOrderInput } from "@share
 import { ApiError } from "@/api/client";
 import { useCatalog } from "@/catalog/CatalogContext";
 import { Modal, Select, TextArea, TextInput } from "@/components/ui";
+import { issuesToErrors } from "@/lib/validation";
 
 type Props = {
   onClose: () => void;
@@ -36,7 +37,7 @@ export default function NewOrderModal({ onClose, onSave }: Props) {
       estimatedCost: estimatedCost.trim() ? Number(estimatedCost.replace(/[^0-9.]/g, "")) : null,
     });
     if (!parsed.success) {
-      setErrors(Object.fromEntries(parsed.error.issues.map((issue) => [issue.path.join("."), issue.message])));
+      setErrors(issuesToErrors(parsed.error.issues));
       return;
     }
     setSaving(true);

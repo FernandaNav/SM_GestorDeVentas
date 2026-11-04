@@ -8,7 +8,7 @@ import * as authService from "./auth.service";
 export const authRouter = Router();
 
 authRouter.post("/login", async (req, res) => {
-  const result = await authService.login(loginSchema.parse(req.body));
+  const result = await authService.login(loginSchema.parse(req.body), req.ip ?? "desconocida");
   res.json(result);
 });
 
@@ -21,5 +21,7 @@ authRouter.put("/password", authenticate, requireRole("Administrador"), async (r
   const { role, newPassword } = changePasswordSchema.parse(req.body);
   const userId = await authService.changePassword(role, newPassword);
   await recordAudit(pool, req, { action: "cambiar_contraseña", entity: "users", entityId: userId });
-  res.status(204).end();
+  // Cambiar una contraseña cierra las sesiones de esa cuenta; si fue la propia, esta sigue con un token nuevo
+  const isOwnPassword = role === currentUser(req).role;
+  res.json({ token: isOwnPassword ? await authService.issueSessionToken(userId) : null });
 });

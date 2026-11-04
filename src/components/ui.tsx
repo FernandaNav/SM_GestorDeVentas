@@ -107,6 +107,11 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <div className={`card ${className}`}>{children}</div>;
 }
 
+/** Aviso de error de un formulario. */
+export function FormError({ message }: { message: string }) {
+  return <div className="cf-warning form-error" role="alert"><Icon name="bell" size="sm" /><span>{message}</span></div>;
+}
+
 export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean }) {
   if (!open) return null;
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;

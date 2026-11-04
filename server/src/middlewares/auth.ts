@@ -1,21 +1,15 @@
 import type { NextFunction, Request, Response } from "express";
-import jwt from "jsonwebtoken";
 import type { Role } from "@shared/constants";
 import type { SessionUser } from "@shared/schemas/auth";
-import { env } from "../config/env";
 import { HttpError } from "../lib/http-error";
+import { verifySession } from "../modules/auth/auth.service";
 
-export function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
     throw new HttpError(401, "Inicia sesión para continuar");
   }
-  try {
-    const { id, username, role } = jwt.verify(header.slice(7), env.JWT_SECRET) as SessionUser;
-    req.user = { id, username, role };
-  } catch {
-    throw new HttpError(401, "Tu sesión expiró. Inicia sesión de nuevo");
-  }
+  req.user = await verifySession(header.slice(7));
   next();
 }
 

@@ -1,19 +1,23 @@
 import type { Request } from "express";
 import type pg from "pg";
-import type { WorkshopStatus } from "@shared/constants";
+import type { Role, WorkshopStatus } from "@shared/constants";
+import type { Page, Pagination } from "@shared/schemas/common";
 import { createSaleSchema, type SaleDetail } from "@shared/schemas/sales";
 import {
   formatOrderNumber,
   nextWorkshopStatus,
   type CreateWorkshopOrderInput,
   type WorkshopCheckoutInput,
-  type WorkshopFilters,
+  type WorkshopHistoryFilters,
   type WorkshopItemInput,
   type WorkshopOrderDetail,
   type WorkshopOrderSummary,
+  type WorkshopSummary,
 } from "@shared/schemas/workshop";
 import { pool, withTransaction, type Queryable } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
+import { businessDayOf, todayInGuatemala } from "../../lib/dates";
+import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
 import * as categoriesRepository from "../categories/categories.repository";
@@ -21,15 +25,36 @@ import * as salesService from "../sales/sales.service";
 import * as staffRepository from "../staff/staff.repository";
 import * as workshopRepository from "./workshop.repository";
 
-const formatMoney = (amount: number) => "Q" + amount.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-export function list(filters: WorkshopFilters): Promise<WorkshopOrderSummary[]> {
-  return workshopRepository.findSummaries(pool, filters);
+export function listActive(): Promise<WorkshopOrderSummary[]> {
+  return workshopRepository.findActive(pool);
 }
 
-export async function get(id: number): Promise<WorkshopOrderDetail> {
+/** El empleado solo consulta lo entregado hoy (RNF 1.3); null = el Administrador, sin límite de fecha. */
+const visibleDeliveryDay = (role: Role) => (role === "Administrador" ? null : todayInGuatemala());
+
+/** Órdenes entregadas, de la más reciente a la más antigua. */
+export async function listHistory(
+  filters: WorkshopHistoryFilters,
+  { page, pageSize }: Pagination,
+  role: Role,
+): Promise<Page<WorkshopOrderSummary>> {
+  const deliveredOn = visibleDeliveryDay(role);
+  const totalItems = await workshopRepository.countHistory(pool, filters, deliveredOn);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const items = await workshopRepository.findHistoryPage(pool, filters, deliveredOn, pageSize, (currentPage - 1) * pageSize);
+  return { items, page: currentPage, pageSize, totalItems, totalPages };
+}
+
+export function summary(role: Role): Promise<WorkshopSummary> {
+  return workshopRepository.findSummaryCounts(pool, visibleDeliveryDay(role));
+}
+
+export async function get(id: number, role: Role): Promise<WorkshopOrderDetail> {
   const detail = await loadDetail(pool, id);
-  if (!detail) throw notFound("Orden de taller");
+  if (!detail) throw notFound("la orden de taller");
+  const deliveredOn = visibleDeliveryDay(role);
+  if (deliveredOn && detail.deliveredAt && businessDayOf(detail.deliveredAt) !== deliveredOn) throw notFound("la orden de taller");
   return detail;
 }
 
@@ -70,7 +95,7 @@ export function removeItem(orderId: number, itemId: number, req: Request): Promi
   return withTransaction(async (db) => {
     await lockEditableOrder(db, orderId);
     const removed = await workshopRepository.deleteItem(db, orderId, itemId);
-    if (!removed) throw notFound("Servicio o repuesto");
+    if (!removed) throw notFound("el servicio o repuesto");
     await workshopRepository.insertEvent(db, orderId, `Se quitó ${removed.kind}: ${removed.description}`, currentUser(req).id);
     await recordAudit(db, req, { action: "eliminar", entity: "workshop_order_items", entityId: itemId, before: { orderId, ...removed } });
     return (await loadDetail(db, orderId))!;
@@ -84,7 +109,7 @@ export function removeItem(orderId: number, itemId: number, req: Request): Promi
 export function changeStatus(orderId: number, status: WorkshopStatus, req: Request): Promise<WorkshopOrderDetail> {
   return withTransaction(async (db) => {
     const order = await workshopRepository.findById(db, orderId, { forUpdate: true });
-    if (!order) throw notFound("Orden de taller");
+    if (!order) throw notFound("la orden de taller");
 
     const next = nextWorkshopStatus(order.status);
     if (status === "Entregada") throw new HttpError(400, "Para entregar la orden usa Cobrar y entregar");
@@ -120,7 +145,7 @@ export function checkout(
 ): Promise<{ order: WorkshopOrderDetail; sale: SaleDetail }> {
   return withTransaction(async (db) => {
     const order = await workshopRepository.findById(db, orderId, { forUpdate: true });
-    if (!order) throw notFound("Orden de taller");
+    if (!order) throw notFound("la orden de taller");
     if (order.status === "Entregada" || order.saleId) throw new HttpError(409, "Esta orden ya fue cobrada y entregada");
     if (order.status !== "Lista para entregar") {
       throw new HttpError(409, "La orden debe estar Lista para entregar antes de cobrarla");
@@ -170,7 +195,7 @@ export function checkout(
 
 async function lockEditableOrder(db: pg.PoolClient, orderId: number) {
   const order = await workshopRepository.findById(db, orderId, { forUpdate: true });
-  if (!order) throw notFound("Orden de taller");
+  if (!order) throw notFound("la orden de taller");
   if (order.status === "Entregada") throw new HttpError(409, "La orden ya fue entregada y cobrada; no se puede modificar");
   return order;
 }

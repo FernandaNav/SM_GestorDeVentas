@@ -1,11 +1,12 @@
 import type { WorkshopStatus } from "@shared/constants";
 import type {
   CreateWorkshopOrderInput,
-  WorkshopFilters,
+  WorkshopHistoryFilters,
   WorkshopItemInput,
   WorkshopOrderEvent,
   WorkshopOrderItem,
   WorkshopOrderSummary,
+  WorkshopSummary,
 } from "@shared/schemas/workshop";
 import type { Queryable } from "../../db/pool";
 
@@ -36,20 +37,65 @@ const SUMMARY_FROM = `
     WHERE i.order_id = o.id
   ) totals ON true`;
 
-// El historial solo trae las más recientes: las entregadas crecen sin límite
-const HISTORY_LIMIT = 200;
-
-export async function findSummaries(db: Queryable, { view }: WorkshopFilters): Promise<WorkshopOrderSummary[]> {
-  const { rows } =
-    view === "activas"
-      ? await db.query<WorkshopOrderSummary>(
-          `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} WHERE o.status <> 'Entregada' ORDER BY o.received_at`,
-        )
-      : await db.query<WorkshopOrderSummary>(
-          `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} WHERE o.status = 'Entregada' ORDER BY o.delivered_at DESC LIMIT $1`,
-          [HISTORY_LIMIT],
-        );
+/** Las que siguen en el taller. No se paginan: son el trabajo del día y no se acumulan. */
+export async function findActive(db: Queryable): Promise<WorkshopOrderSummary[]> {
+  const { rows } = await db.query<WorkshopOrderSummary>(
+    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} WHERE o.status <> 'Entregada' ORDER BY o.received_at`,
+  );
   return rows;
+}
+
+// Entregadas que coinciden con la búsqueda. $1 = texto; $2 = el mismo texto como número de
+// orden ("OT-0007", "ot7" o "7" → 7), para encontrarla aunque esté en otra página;
+// $3 = solo las entregadas ese día (NULL = todas).
+const HISTORY_WHERE = `
+  WHERE o.status = 'Entregada'
+    AND ($3::date IS NULL OR business_date(o.delivered_at) = $3)
+    AND ($1::text IS NULL
+      OR o.id = $2
+      OR o.client_name ILIKE '%' || $1 || '%'
+      OR o.motorcycle ILIKE '%' || $1 || '%'
+      OR o.plate ILIKE '%' || $1 || '%'
+      OR o.client_phone ILIKE '%' || $1 || '%')`;
+
+const historyParams = ({ search }: WorkshopHistoryFilters, deliveredOn: string | null) => {
+  const text = search || null;
+  const orderNumber = text?.match(/^(?:OT-?)?0*(\d{1,9})$/i)?.[1];
+  return [text, orderNumber ? Number(orderNumber) : null, deliveredOn];
+};
+
+export async function countHistory(db: Queryable, filters: WorkshopHistoryFilters, deliveredOn: string | null): Promise<number> {
+  const { rows } = await db.query<{ total: number }>(
+    `SELECT count(*)::int AS total FROM workshop_orders o ${HISTORY_WHERE}`,
+    historyParams(filters, deliveredOn),
+  );
+  return rows[0].total;
+}
+
+export async function findHistoryPage(
+  db: Queryable,
+  filters: WorkshopHistoryFilters,
+  deliveredOn: string | null,
+  limit: number,
+  offset: number,
+): Promise<WorkshopOrderSummary[]> {
+  const { rows } = await db.query<WorkshopOrderSummary>(
+    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} ${HISTORY_WHERE} ORDER BY o.delivered_at DESC, o.id DESC LIMIT $4 OFFSET $5`,
+    [...historyParams(filters, deliveredOn), limit, offset],
+  );
+  return rows;
+}
+
+/** deliveredTotal cuenta lo que quien consulta puede ver en el historial (deliveredOn = solo ese día). */
+export async function findSummaryCounts(db: Queryable, deliveredOn: string | null): Promise<WorkshopSummary> {
+  const { rows } = await db.query<WorkshopSummary>(
+    `SELECT count(*) FILTER (WHERE business_date(delivered_at) = business_date(now()))::int AS "deliveredToday",
+            count(*) FILTER (WHERE $1::date IS NULL OR business_date(delivered_at) = $1)::int AS "deliveredTotal"
+     FROM workshop_orders
+     WHERE status = 'Entregada'`,
+    [deliveredOn],
+  );
+  return rows[0];
 }
 
 /** Con `forUpdate` bloquea la orden hasta terminar la transacción, para que dos estaciones no la cobren a la vez. */
@@ -129,6 +175,27 @@ export async function markDelivered(db: Queryable, id: number, saleId: number, f
     `UPDATE workshop_orders SET status = 'Entregada', sale_id = $2, final_cost = $3, delivered_at = now() WHERE id = $1`,
     [id, saleId, finalCost],
   );
+}
+
+/** Actualiza lo cobrado en la orden que generó esta venta. Devuelve su id, o undefined si la venta no viene de taller. */
+export async function updateFinalCostBySale(db: Queryable, saleId: number, finalCost: number): Promise<number | undefined> {
+  const { rows } = await db.query<{ id: number }>(`UPDATE workshop_orders SET final_cost = $2 WHERE sale_id = $1 RETURNING id`, [
+    saleId,
+    finalCost,
+  ]);
+  return rows[0]?.id;
+}
+
+/** Deshace el cobro de la orden que generó esta venta. Devuelve su id, o undefined si la venta no viene de taller. */
+export async function reopenOrderOfSale(db: Queryable, saleId: number): Promise<number | undefined> {
+  const { rows } = await db.query<{ id: number }>(
+    `UPDATE workshop_orders
+     SET status = 'Lista para entregar', sale_id = NULL, final_cost = NULL, delivered_at = NULL
+     WHERE sale_id = $1
+     RETURNING id`,
+    [saleId],
+  );
+  return rows[0]?.id;
 }
 
 export async function insertEvent(db: Queryable, orderId: number, description: string, createdBy: number) {

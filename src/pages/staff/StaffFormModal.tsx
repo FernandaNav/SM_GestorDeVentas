@@ -3,6 +3,7 @@ import type { StaffType } from "@shared/constants";
 import { staffInputSchema, type StaffInput, type StaffMember } from "@shared/schemas/staff";
 import { ApiError } from "@/api/client";
 import { Modal, TextInput, UnstyledButton } from "@/components/ui";
+import { issuesToErrors } from "@/lib/validation";
 
 type Props = {
   /** null = agregar; con valor = editar a esa persona */
@@ -23,7 +24,7 @@ export default function StaffFormModal({ member, onClose, onSave }: Props) {
   const handleSave = async () => {
     const parsed = staffInputSchema.safeParse({ fullName, type, phone });
     if (!parsed.success) {
-      setErrors(Object.fromEntries(parsed.error.issues.map((issue) => [issue.path.join("."), issue.message])));
+      setErrors(issuesToErrors(parsed.error.issues));
       return;
     }
     setSaving(true);

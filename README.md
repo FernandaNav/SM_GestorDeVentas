@@ -37,6 +37,7 @@ Vite redirige `/api` al backend, así que en el navegador solo se abre `http://l
 | --- | --- |
 | `pnpm dev:all` | Frontend y backend juntos, con recarga automática |
 | `pnpm typecheck` | Revisa tipos del frontend y del backend (debe pasar antes de cada PR) |
+| `pnpm test` | Prueba ventas contra un PostgreSQL local (necesita `TEST_DATABASE_URL`, ver `.env.example`; esa base se borra) |
 | `pnpm build` | Compila el frontend en `dist/` |
 | `pnpm server` | Backend sin recarga (producción). Si existe `dist/`, también entrega el frontend |
 | `pnpm db:migrate` | Aplica las migraciones pendientes de `server/db/migrations/` |

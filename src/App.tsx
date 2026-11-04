@@ -16,16 +16,13 @@ import SettingsPage from "@/pages/settings/SettingsPage";
 import StaffPage from "@/pages/staff/StaffPage";
 import StatsPage from "@/pages/stats/StatsPage";
 import WorkshopPage from "@/pages/workshop/WorkshopPage";
-import { LocalDataProvider, useLocalData } from "@/temporal/LocalDataProvider";
 
 export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <LocalDataProvider>
-            <AppRoutes />
-          </LocalDataProvider>
+          <AppRoutes />
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
@@ -37,9 +34,6 @@ function AppRoutes() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const theme = useTheme();
-  // TEMPORAL: las pantallas sin API reciben los datos locales por props.
-  // Al conectar un módulo, su página pide sus datos con useApiQuery y se quitan estas props.
-  const local = useLocalData();
   const role = user?.role ?? "Empleado";
 
   return (
@@ -55,10 +49,7 @@ function AppRoutes() {
             path={paths.newSale}
             element={<NewSalePage role={role} onHistory={() => navigate(paths.salesHistory)} />}
           />
-          <Route
-            path={paths.salesHistory}
-            element={<SalesHistoryPage role={role} onInvoice={() => navigate(paths.salesHistory)} />}
-          />
+          <Route path={paths.salesHistory} element={<SalesHistoryPage role={role} />} />
 
           <Route path={paths.workshop} element={<WorkshopPage />} />
 

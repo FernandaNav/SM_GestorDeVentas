@@ -2,15 +2,18 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { formatOrderNumber, type CreateWorkshopOrderInput, type WorkshopOrderSummary } from "@shared/schemas/workshop";
 import { workshopApi } from "@/api/workshop";
+import { useSessionUser } from "@/auth/AuthContext";
+import Pagination from "@/components/Pagination";
 import { Badge, Button, Card, Icon, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatQuetzales } from "@/lib/format";
 import NewOrderModal from "@/pages/workshop/NewOrderModal";
 import OrderDetail from "@/pages/workshop/OrderDetail";
 import { WORKSHOP_STATUS_TONES } from "@/pages/workshop/workshopStatus";
 
-const GUATEMALA_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" });
-const isToday = (iso: string | null) => !!iso && GUATEMALA_DAY.format(new Date(iso)) === GUATEMALA_DAY.format(new Date());
+const HISTORY_PAGE_SIZE = 20;
+const SEARCH_DELAY_MS = 300;
 
 const matchesSearch = (order: WorkshopOrderSummary, query: string) => {
   const text = query.trim().toLowerCase();
@@ -27,11 +30,17 @@ export default function WorkshopPage() {
   const [activeTab, setActiveTab] = useState<"activas" | "historial">("activas");
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Aquí y no en el historial: al abrir una orden el historial se desmonta y al regresar debe seguir en su página
+  const [historyPage, setHistoryPage] = useState(1);
+  const isAdmin = useSessionUser().role === "Administrador";
 
-  const { data: activeOrders = [], loading, error, refetch } = useApiQuery("workshop:activas", () => workshopApi.list({ view: "activas" }));
-  const { data: historyOrders = [], refetch: refetchHistory } = useApiQuery("workshop:historial", () =>
-    workshopApi.list({ view: "historial" }),
-  );
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    setHistoryPage(1);
+  };
+
+  const { data: activeOrders = [], loading, error, refetch } = useApiQuery("workshop:activas", workshopApi.listActive);
+  const { data: summary, refetch: refetchSummary } = useApiQuery("workshop:summary", workshopApi.summary);
 
   const selectedId = Number(searchParams.get("orden"));
   if (Number.isInteger(selectedId) && selectedId > 0) {
@@ -41,7 +50,7 @@ export default function WorkshopPage() {
         onBack={() => {
           setSearchParams({});
           refetch();
-          refetchHistory();
+          refetchSummary();
         }}
       />
     );
@@ -55,7 +64,7 @@ export default function WorkshopPage() {
     openOrder(created.id);
   };
 
-  const displayedOrders = (activeTab === "activas" ? activeOrders : historyOrders).filter((order) => matchesSearch(order, searchQuery));
+  const displayedActive = activeOrders.filter((order) => matchesSearch(order, searchQuery));
   const countByStatus = (status: WorkshopOrderSummary["status"]) => activeOrders.filter((order) => order.status === status).length;
 
   return (
@@ -85,7 +94,7 @@ export default function WorkshopPage() {
         </Card>
         <Card>
           <span>Entregadas hoy</span>
-          <strong style={{ color: "var(--color-blue)" }}>{historyOrders.filter((order) => isToday(order.deliveredAt)).length}</strong>
+          <strong style={{ color: "var(--color-blue)" }}>{summary?.deliveredToday ?? 0}</strong>
         </Card>
       </div>
 
@@ -98,57 +107,127 @@ export default function WorkshopPage() {
               Órdenes activas <span className="tab-count">{activeOrders.length}</span>
             </button>
             <button type="button" className={`workshop-tab ${activeTab === "historial" ? "active" : ""}`} onClick={() => setActiveTab("historial")}>
-              Historial <span className="tab-count">{historyOrders.length}</span>
+              {isAdmin ? "Historial" : "Entregadas hoy"} <span className="tab-count">{summary?.deliveredTotal ?? 0}</span>
             </button>
           </div>
-          <TextInput placeholder="Buscar por cliente, moto, placa u orden..." icon="search" value={searchQuery} onChange={setSearchQuery} />
+          <TextInput placeholder="Buscar por cliente, moto, placa u orden..." icon="search" value={searchQuery} onChange={handleSearch} />
         </div>
 
-        {!loading && displayedOrders.length === 0 ? (
-          <div className="empty-state-box">
-            <div className="empty-state-icon">
-              <Icon name="wrench" />
-            </div>
-            <div className="empty-state-title">{searchQuery ? "Ninguna orden coincide con la búsqueda" : "No hay órdenes en esta sección"}</div>
-            <div className="empty-state-desc">
-              {activeTab === "activas" ? "Haz clic en Nuevo servicio para registrar una nueva orden de trabajo." : "Aquí aparecen las órdenes ya cobradas y entregadas."}
-            </div>
-          </div>
+        {activeTab === "activas" ? (
+          !loading && displayedActive.length === 0 ? (
+            <EmptyOrders
+              title={searchQuery ? "Ninguna orden coincide con la búsqueda" : "No hay órdenes activas"}
+              text="Haz clic en Nuevo servicio para registrar una nueva orden de trabajo."
+            />
+          ) : (
+            <OrdersTable orders={displayedActive} onOpen={openOrder} />
+          )
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Orden</th>
-                  <th>Cliente</th>
-                  <th>Teléfono</th>
-                  <th>Moto / placa</th>
-                  <th>Trabajo</th>
-                  <th>Mecánico</th>
-                  <th>Estado</th>
-                  <th>Costo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedOrders.map((order) => (
-                  <tr key={order.id} style={{ cursor: "pointer" }} onClick={() => openOrder(order.id)}>
-                    <td><strong>{formatOrderNumber(order.id)}</strong></td>
-                    <td>{order.clientName}</td>
-                    <td>{order.clientPhone ?? "—"}</td>
-                    <td>{order.plate ? `${order.motorcycle} · ${order.plate}` : order.motorcycle}</td>
-                    <td>{order.workDescription}</td>
-                    <td>{order.mechanicName}</td>
-                    <td><Badge tone={WORKSHOP_STATUS_TONES[order.status]}>{order.status}</Badge></td>
-                    <td><OrderCost order={order} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <WorkshopHistory search={searchQuery} page={historyPage} onPageChange={setHistoryPage} onOpen={openOrder} isAdmin={isAdmin} />
         )}
       </Card>
 
       {isNewModalOpen && <NewOrderModal onClose={() => setIsNewModalOpen(false)} onSave={handleCreate} />}
+    </div>
+  );
+}
+
+/**
+ * Órdenes entregadas. Se acumulan sin límite, así que van paginadas y la búsqueda la hace
+ * el servidor para encontrar también las de otras páginas. Solo consulta mientras se ve.
+ */
+function WorkshopHistory({
+  search,
+  page,
+  onPageChange,
+  onOpen,
+  isAdmin,
+}: {
+  search: string;
+  page: number;
+  onPageChange: (page: number) => void;
+  onOpen: (id: number) => void;
+  isAdmin: boolean;
+}) {
+  const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DELAY_MS);
+
+  const { data, loading, error } = useApiQuery(`workshop:historial:${debouncedSearch}:${page}`, () =>
+    workshopApi.history(page, HISTORY_PAGE_SIZE, debouncedSearch || undefined),
+  );
+  const orders = data?.items ?? [];
+
+  if (error) return <div className="cf-warning">{error.message}</div>;
+  if (loading && orders.length === 0) return <div className="muted" style={{ padding: 16 }}>Cargando historial...</div>;
+  if (orders.length === 0) {
+    const emptyTitle = isAdmin ? "Todavía no hay órdenes entregadas" : "Hoy todavía no se han entregado órdenes";
+    return (
+      <EmptyOrders
+        title={debouncedSearch ? "Ninguna orden coincide con la búsqueda" : emptyTitle}
+        text={isAdmin ? "Aquí aparecen las órdenes ya cobradas y entregadas." : "Aquí aparecen las órdenes cobradas y entregadas hoy."}
+      />
+    );
+  }
+
+  return (
+    <>
+      <OrdersTable orders={orders} onOpen={onOpen} />
+      {data && (
+        <Pagination
+          page={data.page}
+          pageSize={data.pageSize}
+          totalItems={data.totalItems}
+          totalPages={data.totalPages}
+          onPageChange={onPageChange}
+          noun="órdenes"
+        />
+      )}
+    </>
+  );
+}
+
+function OrdersTable({ orders, onOpen }: { orders: WorkshopOrderSummary[]; onOpen: (id: number) => void }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Orden</th>
+            <th>Cliente</th>
+            <th>Teléfono</th>
+            <th>Moto / placa</th>
+            <th>Trabajo</th>
+            <th>Mecánico</th>
+            <th>Estado</th>
+            <th>Costo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((order) => (
+            <tr key={order.id} style={{ cursor: "pointer" }} onClick={() => onOpen(order.id)}>
+              <td><strong>{formatOrderNumber(order.id)}</strong></td>
+              <td>{order.clientName}</td>
+              <td>{order.clientPhone ?? "—"}</td>
+              <td>{order.plate ? `${order.motorcycle} · ${order.plate}` : order.motorcycle}</td>
+              <td>{order.workDescription}</td>
+              <td>{order.mechanicName}</td>
+              <td><Badge tone={WORKSHOP_STATUS_TONES[order.status]}>{order.status}</Badge></td>
+              <td><OrderCost order={order} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EmptyOrders({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="empty-state-box">
+      <div className="empty-state-icon">
+        <Icon name="wrench" />
+      </div>
+      <div className="empty-state-title">{title}</div>
+      <div className="empty-state-desc">{text}</div>
     </div>
   );
 }

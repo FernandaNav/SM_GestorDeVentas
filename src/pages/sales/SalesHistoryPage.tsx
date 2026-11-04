@@ -1,34 +1,32 @@
 import { useMemo, useState } from "react";
 import type { PaymentMethod, Role } from "@shared/constants";
 import type { SaleDetail, SaleFilters, SaleSummary } from "@shared/schemas/sales";
+import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
+import Pagination from "@/components/Pagination";
 import { type DateRange, DateRangePicker, presetRange } from "@/components/dates";
-import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextInput } from "@/components/ui";
+import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useSellerFilterOptions } from "@/hooks/useSellerFilterOptions";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
+import DeletedSalesPanel from "@/pages/sales/DeletedSalesPanel";
 import EditSaleModal from "@/pages/sales/EditSaleModal";
-import InvoicePreview from "@/pages/sales/InvoicePreview";
-import type { SaleRecord } from "@/temporal/localStore";
+import { SaleInvoice } from "@/pages/sales/InvoicePreview";
 
-export default function SalesHistory({
-  role,
-  sales: localSales,
-  onInvoice,
-  onUpdateSale,
-  onDeleteSale,
-}: {
-  role: Role;
-  sales?: SaleRecord[];
-  onInvoice?: () => void;
-  onUpdateSale?: (updated: SaleRecord) => void;
-  onDeleteSale?: (id: string | number) => void;
-}) {
-  const { sellers, sellerNames, categories, categoryNames } = useCatalog();
+const PAGE_SIZE = 20;
+const SEARCH_DELAY_MS = 300;
+
+export default function SalesHistory({ role }: { role: Role }) {
+  const { categories, categoryNames } = useCatalog();
+  const sellerOptions = useSellerFilterOptions();
   const isAdmin = role === "Administrador";
 
+  const [page, setPage] = useState(1);
   const [dateRange, setDateRange] = useState<DateRange>(() => presetRange("Últimos 30 días"));
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebouncedValue(searchQuery, SEARCH_DELAY_MS);
   const [filterSeller, setFilterSeller] = useState("Todos los vendedores");
   const [filterCategory, setFilterCategory] = useState("Todas las categorías");
   const [filterPayment, setFilterPayment] = useState("Cualquier pago");
@@ -40,8 +38,19 @@ export default function SalesHistory({
   const [loadingInvoiceId, setLoadingInvoiceId] = useState<number | null>(null);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
   const [deletingSaleId, setDeletingSaleId] = useState<number | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  // Historial de ventas eliminadas (solo Administrador)
+  const [showDeleted, setShowDeleted] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
+
+  /** Envuelve un setter de filtro: al cambiar lo que se busca se vuelve a la primera página. */
+  const onFilter =
+    <Value,>(setValue: (value: Value) => void) =>
+    (value: Value) => {
+      setPage(1);
+      setValue(value);
+    };
 
   const toIsoDate = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -56,7 +65,7 @@ export default function SalesHistory({
       }
 
       if (filterSeller !== "Todos los vendedores") {
-        const found = sellers.find((s) => s.fullName === filterSeller);
+        const found = sellerOptions.find((s) => s.label === filterSeller);
         if (found) filters.sellerId = found.id;
       }
       if (filterCategory !== "Todas las categorías") {
@@ -75,8 +84,8 @@ export default function SalesHistory({
         filters.hasPendingCommission = true;
       }
     }
-    if (searchQuery.trim()) {
-      filters.search = searchQuery.trim();
+    if (debouncedSearch.trim()) {
+      filters.search = debouncedSearch.trim();
     }
     return filters;
   }, [
@@ -87,8 +96,8 @@ export default function SalesHistory({
     filterPayment,
     filterStatus,
     filterPendingCommission,
-    searchQuery,
-    sellers,
+    debouncedSearch,
+    sellerOptions,
     categories,
   ]);
 
@@ -96,17 +105,16 @@ export default function SalesHistory({
 
   // Cargar ventas de la API
   const {
-    data: serverSales,
+    data: salesPage,
     loading,
     error,
     refetch,
-  } = useApiQuery(`sales:list:${queryKey}`, () => salesApi.list(activeFilters));
+  } = useApiQuery(`sales:list:${queryKey}:${page}`, () => salesApi.list(activeFilters, page, PAGE_SIZE), { poll: !showDeleted });
 
   // Contador de facturas del mes (punto 5)
-  const { data: invoiceUsage } = useApiQuery("sales:invoice-usage", salesApi.invoiceUsage);
+  const { data: invoiceUsage } = useApiQuery("sales:invoice-usage", salesApi.invoiceUsage, { poll: !showDeleted });
 
-  // Usar datos del servidor o fallback local si no hay conexión
-  const displayedSales: SaleSummary[] = serverSales ?? [];
+  const displayedSales: SaleSummary[] = salesPage?.items ?? [];
 
   const handleOpenInvoice = async (saleId: number) => {
     setLoadingInvoiceId(saleId);
@@ -114,9 +122,7 @@ export default function SalesHistory({
       const detail = await salesApi.get(saleId);
       setSelectedInvoiceSale(detail);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al cargar la factura";
-      setFeedbackMessage(msg);
-      if (onInvoice) onInvoice();
+      setFeedback({ text: errorMessage(err, "Error al cargar la factura"), isError: true });
     } finally {
       setLoadingInvoiceId(null);
     }
@@ -126,43 +132,26 @@ export default function SalesHistory({
     if (!deletingSaleId) return;
     setIsDeleting(true);
     try {
-      await salesApi.delete(deletingSaleId);
-      if (onDeleteSale) onDeleteSale(deletingSaleId);
-      setFeedbackMessage(`Venta #${deletingSaleId} eliminada correctamente.`);
-      setDeletingSaleId(null);
+      await salesApi.delete(deletingSaleId, deleteReason.trim() || undefined);
+      setFeedback({ text: `Venta #${deletingSaleId} eliminada correctamente.`, isError: false });
       await refetch();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al eliminar la venta";
-      setFeedbackMessage(msg);
+      setFeedback({ text: errorMessage(err, "Error al eliminar la venta"), isError: true });
     } finally {
       setIsDeleting(false);
+      // Se cierra también si falló: el aviso se muestra en la página, detrás del modal
+      setDeletingSaleId(null);
+      setDeleteReason("");
     }
   };
 
+  if (isAdmin && showDeleted) {
+    return <DeletedSalesPanel onBack={() => setShowDeleted(false)} />;
+  }
+
   // Si está viendo una factura
   if (selectedInvoiceSale) {
-    return (
-      <InvoicePreview
-        saleId={selectedInvoiceSale.id}
-        saleDate={selectedInvoiceSale.soldAt}
-        items={selectedInvoiceSale.items.map((it) => ({
-          id: it.id,
-          desc: it.description,
-          cat: it.categoryName,
-          qty: it.quantity,
-          price: it.unitPrice,
-        }))}
-        paymentMethod={selectedInvoiceSale.paymentMethod}
-        seller={selectedInvoiceSale.sellerName}
-        clientId={selectedInvoiceSale.client?.taxId || "CF"}
-        idType={selectedInvoiceSale.client?.taxIdType || "NIT"}
-        clientName={selectedInvoiceSale.client?.name || "Consumidor Final"}
-        clientAddress={selectedInvoiceSale.client?.address || "Ciudad"}
-        total={selectedInvoiceSale.total}
-        observations={selectedInvoiceSale.observations}
-        onClose={() => setSelectedInvoiceSale(null)}
-      />
-    );
+    return <SaleInvoice sale={selectedInvoiceSale} onClose={() => setSelectedInvoiceSale(null)} />;
   }
 
   return (
@@ -176,6 +165,12 @@ export default function SalesHistory({
               : "Ventas registradas durante el turno de hoy."}
           </div>
         </div>
+        <div className="row-actions" style={{ alignItems: "center" }}>
+        {isAdmin && (
+          <Button variant="secondary" icon="trash" onClick={() => setShowDeleted(true)}>
+            Ventas eliminadas
+          </Button>
+        )}
         {invoiceUsage && (
           <div
             style={{
@@ -198,28 +193,25 @@ export default function SalesHistory({
             </Badge>
           </div>
         )}
+        </div>
       </div>
 
-      {feedbackMessage && (
+      {feedback && (
         <div
           className="cf-warning"
+          role={feedback.isError ? "alert" : "status"}
           style={{
-            background: feedbackMessage.includes("correctamente")
-              ? "rgba(16, 185, 129, 0.15)"
-              : "var(--color-danger-soft, #fee2e2)",
-            borderColor: feedbackMessage.includes("correctamente")
-              ? "var(--color-success, #10b981)"
-              : "var(--color-danger, #ef4444)",
-            display: "flex",
+            background: feedback.isError ? "var(--color-danger-soft, #fee2e2)" : "rgba(16, 185, 129, 0.15)",
+            color: feedback.isError ? "var(--color-danger, #dc3545)" : "var(--color-success, #10b981)",
             justifyContent: "space-between",
             alignItems: "center",
           }}
         >
-          <span>{feedbackMessage}</span>
+          <span>{feedback.text}</span>
           <button
             type="button"
             className="icon-button"
-            onClick={() => setFeedbackMessage(null)}
+            onClick={() => setFeedback(null)}
             aria-label="Cerrar aviso"
           >
             ×
@@ -246,34 +238,34 @@ export default function SalesHistory({
             placeholder="Buscar por producto, cliente, vendedor..."
             icon="search"
             value={searchQuery}
-            onChange={setSearchQuery}
+            onChange={onFilter(setSearchQuery)}
           />
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <DateRangePicker value={dateRange} onChange={onFilter(setDateRange)} />
           <Select
             value={filterSeller}
-            options={["Todos los vendedores", ...sellerNames]}
-            onChange={setFilterSeller}
+            options={["Todos los vendedores", ...sellerOptions.map((s) => s.label)]}
+            onChange={onFilter(setFilterSeller)}
           />
           <Select
             value={filterCategory}
             options={["Todas las categorías", ...categoryNames]}
-            onChange={setFilterCategory}
+            onChange={onFilter(setFilterCategory)}
           />
           <Select
             value={filterPayment}
             options={["Cualquier pago", "Efectivo", "Transferencia", "Tarjeta"]}
-            onChange={setFilterPayment}
+            onChange={onFilter(setFilterPayment)}
           />
           <Select
             value={filterStatus}
             options={["Cualquier estado", "Facturada", "No facturada"]}
-            onChange={setFilterStatus}
+            onChange={onFilter(setFilterStatus)}
           />
           <label className="filter-check">
             <input
               type="checkbox"
               checked={filterPendingCommission}
-              onChange={(e) => setFilterPendingCommission(e.target.checked)}
+              onChange={(e) => onFilter(setFilterPendingCommission)(e.target.checked)}
             />
             <span>Comisión pendiente</span>
           </label>
@@ -361,7 +353,8 @@ export default function SalesHistory({
                               }}
                             />
                           )}
-                          {isAdmin && (
+                          {isAdmin && row.isClosed && <Badge tone="neutral">Período cerrado</Badge>}
+                          {isAdmin && !row.isClosed && (
                             <>
                               <IconButton
                                 icon="edit"
@@ -382,9 +375,16 @@ export default function SalesHistory({
                 </tbody>
               </table>
             </div>
-            <div className="pagination">
-              <span>Mostrando {displayedSales.length} ventas</span>
-            </div>
+            {salesPage && (
+              <Pagination
+                page={salesPage.page}
+                pageSize={salesPage.pageSize}
+                totalItems={salesPage.totalItems}
+                totalPages={salesPage.totalPages}
+                onPageChange={setPage}
+                noun="ventas"
+              />
+            )}
           </>
         )}
       </Card>
@@ -396,7 +396,7 @@ export default function SalesHistory({
           saleId={editingSaleId}
           onClose={() => setEditingSaleId(null)}
           onSuccess={() => {
-            setFeedbackMessage("Venta actualizada exitosamente y registrada en bitácora.");
+            setFeedback({ text: "Venta actualizada exitosamente y registrada en bitácora.", isError: false });
             refetch();
           }}
         />
@@ -406,18 +406,30 @@ export default function SalesHistory({
       <Modal
         open={deletingSaleId !== null}
         title="Eliminar venta"
-        onClose={() => setDeletingSaleId(null)}
+        onClose={() => {
+          setDeletingSaleId(null);
+          setDeleteReason("");
+        }}
         onConfirm={handleConfirmDelete}
         confirmLabel={isDeleting ? "Eliminando..." : "Sí, eliminar"}
+        confirmDisabled={isDeleting}
       >
 
         <p style={{ margin: "0 0 12px 0", fontSize: "14px" }}>
           ¿Estás seguro de que deseas eliminar la venta <strong>#{deletingSaleId}</strong>?
         </p>
+        <div style={{ marginBottom: "12px" }}>
+          <TextArea
+            label="Motivo (opcional)"
+            placeholder="Ej. Se registró dos veces, el cliente canceló la compra..."
+            value={deleteReason}
+            onChange={setDeleteReason}
+          />
+        </div>
         <div style={{ fontSize: "12px", color: "var(--color-muted)", background: "var(--color-surface-soft)", padding: "10px", borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", gap: "6px" }}>
           <Icon name="lock" size="sm" />
           <span>
-            Esta acción no se puede deshacer y quedará registrada en la bitácora de auditoría con tu usuario y rol de Administrador.
+            Esta acción no se puede deshacer y quedará registrada en la bitácora de auditoría con tu usuario y rol de Administrador. Si la venta salió de una orden de taller, la orden vuelve a "Lista para entregar" para cobrarse de nuevo.
           </span>
         </div>
       </Modal>

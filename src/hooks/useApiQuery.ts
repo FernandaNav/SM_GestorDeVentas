@@ -24,15 +24,22 @@ export function useApiQuery<T>(key: string, fetcher: () => Promise<T>, { poll = 
   const [loading, setLoading] = useState(true);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const latestRequest = useRef(0);
 
   const refetch = useCallback(async () => {
+    // Una respuesta atrasada no debe pisar a la de una petición más nueva (por ejemplo, otro filtro)
+    const request = ++latestRequest.current;
+    const isLatest = () => request === latestRequest.current;
     try {
-      setData(await fetcherRef.current());
+      const result = await fetcherRef.current();
+      if (!isLatest()) return;
+      setData(result);
       setError(null);
     } catch (err) {
+      if (!isLatest()) return;
       setError(err instanceof ApiError ? err : new ApiError(0, "Error inesperado"));
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, []);
 
