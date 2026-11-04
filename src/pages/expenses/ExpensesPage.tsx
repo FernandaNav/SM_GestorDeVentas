@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@shared/constants";
+import { EXPENSE_AREAS, EXPENSE_CATEGORIES, type ExpenseArea, type ExpenseCategory } from "@shared/constants";
 import { expenseInputSchema, type Expense } from "@shared/schemas/expenses";
 import { ApiError } from "@/api/client";
 import { expensesApi } from "@/api/expenses";
+import Pagination from "@/components/Pagination";
+import Segmented from "@/components/Segmented";
 import { DatePicker, endOfMonth, fmtDay, MonthPicker, startOfDay, startOfMonth } from "@/components/dates";
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -18,26 +20,48 @@ const fromIsoDate = (iso: string) => {
   return new Date(year, month - 1, day);
 };
 
+const PAGE_SIZE = 20;
+const AREA_FILTERS = ["Todas", ...EXPENSE_AREAS];
+
 export default function ExpensesPage() {
+  // ─── formulario ───────────────────────────────────────────────────────────
   const [expenseDate, setExpenseDate] = useState(() => startOfDay(new Date()));
   const [amount, setAmount] = useState("");
+  const [area, setArea] = useState<ExpenseArea>("Tienda");
   const [category, setCategory] = useState<ExpenseCategory>("Servicios");
   const [description, setDescription] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
+  // ─── lista: mes, filtro por área y página ─────────────────────────────────
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const [areaFilter, setAreaFilter] = useState("Todas");
+  const [page, setPage] = useState(1);
   const [toDelete, setToDelete] = useState<Expense | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const range = { from: toIsoDate(month), to: toIsoDate(endOfMonth(month)) };
-  const { data: expenses = [], loading, error, refetch } = useApiQuery(`expenses:${range.from}`, () => expensesApi.list(range));
-  const monthTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const filterArea = areaFilter === "Todas" ? undefined : (areaFilter as ExpenseArea);
+  const { data, loading, error, refetch } = useApiQuery(`expenses:${range.from}:${areaFilter}:${page}`, () =>
+    expensesApi.list(range, page, filterArea, PAGE_SIZE),
+  );
+  const expenses = data?.items ?? [];
+
+  // Al cambiar de mes o de área se vuelve a la primera página
+  const changeMonth = (value: Date) => {
+    setMonth(value);
+    setPage(1);
+  };
+  const changeAreaFilter = (value: string) => {
+    setAreaFilter(value);
+    setPage(1);
+  };
 
   const handleSave = async () => {
     const parsed = expenseInputSchema.safeParse({
       spentOn: toIsoDate(expenseDate),
       amount: amount.trim() === "" ? undefined : Number(amount.replace(/[Q,\s]/g, "")),
+      area,
       category,
       description,
     });
@@ -51,7 +75,17 @@ export default function ExpensesPage() {
       await expensesApi.create(parsed.data);
       setAmount("");
       setDescription("");
-      await refetch();
+      // Se muestra el gasto recién guardado: su mes, la primera página y sin un filtro que lo esconda
+      const createdMonth = startOfMonth(expenseDate);
+      const hiddenByFilter = filterArea !== undefined && filterArea !== parsed.data.area;
+      const alreadyVisible = page === 1 && createdMonth.getTime() === month.getTime() && !hiddenByFilter;
+      if (alreadyVisible) {
+        await refetch();
+      } else {
+        setMonth(createdMonth);
+        setPage(1);
+        if (hiddenByFilter) setAreaFilter("Todas");
+      }
     } catch (err) {
       if (err instanceof ApiError) setErrors({ ...err.fields, _form: err.message });
     } finally {
@@ -64,7 +98,9 @@ export default function ExpensesPage() {
     setActionError(null);
     try {
       await expensesApi.remove(toDelete.id);
-      await refetch();
+      // Si era el único gasto de la página, se regresa a la anterior en vez de dejarla vacía
+      if (expenses.length === 1 && page > 1) setPage(page - 1);
+      else await refetch();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "No se pudo eliminar");
     }
@@ -77,6 +113,11 @@ export default function ExpensesPage() {
         <div className="card-title">Registrar compra o gasto</div>
         <div className="muted small">Agrega una compra o gasto operativo.</div>
         <div className="vertical-form">
+          <div className="field">
+            <span className="field-label">Área</span>
+            <Segmented options={[...EXPENSE_AREAS]} value={area} onChange={(value) => setArea(value as ExpenseArea)} />
+            {errors.area && <span className="field-error">{errors.area}</span>}
+          </div>
           <DatePicker label="Fecha" value={expenseDate} onChange={setExpenseDate} max={new Date()} />
           {errors.spentOn && <span className="field-error">{errors.spentOn}</span>}
           <TextInput label="Monto" placeholder="Q 0.00" value={amount} onChange={setAmount} error={errors.amount} />
@@ -99,9 +140,16 @@ export default function ExpensesPage() {
         <div className="card-heading">
           <div>
             <div className="card-title">Gastos registrados</div>
-            <div className="muted small">Total del mes: {formatQuetzales(monthTotal)}</div>
+            <div className="muted small">
+              Total del mes: <strong>{formatQuetzales(data?.summary.total ?? 0)}</strong> · Tienda{" "}
+              {formatQuetzales(data?.summary.byArea.Tienda ?? 0)} · Taller {formatQuetzales(data?.summary.byArea.Taller ?? 0)}
+            </div>
           </div>
-          <MonthPicker value={month} onChange={setMonth} />
+          <MonthPicker value={month} onChange={changeMonth} />
+        </div>
+
+        <div style={{ margin: "0.75rem 0 1rem" }}>
+          <Segmented options={AREA_FILTERS} value={areaFilter} onChange={changeAreaFilter} />
         </div>
 
         {(error || actionError) && <div className="cf-warning">{actionError ?? error?.message}</div>}
@@ -111,44 +159,62 @@ export default function ExpensesPage() {
             <div className="empty-state-icon">
               <Icon name="receipt" />
             </div>
-            <div className="empty-state-title">No hay gastos en este mes</div>
+            <div className="empty-state-title">
+              {filterArea ? `No hay gastos de ${filterArea} en este mes` : "No hay gastos en este mes"}
+            </div>
             <div className="empty-state-desc">Ingresa un gasto en el formulario de la izquierda para registrarlo.</div>
           </div>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Descripción</th>
-                  <th>Categoría</th>
-                  <th>Monto</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenses.map((row) => (
-                  <tr key={row.id}>
-                    <td>{fmtDay(fromIsoDate(row.spentOn))}</td>
-                    <td>
-                      <strong>{row.description}</strong>
-                    </td>
-                    <td>
-                      <Badge>{row.category}</Badge>
-                    </td>
-                    <td>
-                      <strong>{formatQuetzales(row.amount)}</strong>
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        <IconButton icon="trash" label="Eliminar" onClick={() => setToDelete(row)} />
-                      </div>
-                    </td>
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Descripción</th>
+                    <th>Área</th>
+                    <th>Categoría</th>
+                    <th>Monto</th>
+                    <th>Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {expenses.map((row) => (
+                    <tr key={row.id}>
+                      <td>{fmtDay(fromIsoDate(row.spentOn))}</td>
+                      <td>
+                        <strong>{row.description}</strong>
+                      </td>
+                      <td>
+                        <Badge tone={row.area === "Taller" ? "info" : "neutral"}>{row.area}</Badge>
+                      </td>
+                      <td>
+                        <Badge>{row.category}</Badge>
+                      </td>
+                      <td>
+                        <strong>{formatQuetzales(row.amount)}</strong>
+                      </td>
+                      <td>
+                        <div className="row-actions">
+                          <IconButton icon="trash" label="Eliminar" onClick={() => setToDelete(row)} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {data && (
+              <Pagination
+                page={data.page}
+                pageSize={data.pageSize}
+                totalItems={data.totalItems}
+                totalPages={data.totalPages}
+                onPageChange={setPage}
+                noun="gastos"
+              />
+            )}
+          </>
         )}
       </Card>
 
@@ -164,6 +230,10 @@ export default function ExpensesPage() {
             <div>
               <span>Descripción</span>
               <strong>{toDelete.description}</strong>
+            </div>
+            <div>
+              <span>Área</span>
+              <strong>{toDelete.area}</strong>
             </div>
             <div>
               <span>Monto</span>

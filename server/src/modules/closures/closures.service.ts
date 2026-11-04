@@ -1,5 +1,6 @@
 import type { Request } from "express";
 import type { Closure, CreateClosureInput, OpenPeriod } from "@shared/schemas/closures";
+import type { Page, Pagination } from "@shared/schemas/common";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
 import { todayInGuatemala } from "../../lib/dates";
@@ -20,8 +21,13 @@ export async function getOpenPeriod(to?: string): Promise<OpenPeriod> {
   return { periodStart, periodEnd, today, ...totals };
 }
 
-export function list(): Promise<Closure[]> {
-  return closuresRepository.findAll(pool);
+/** Historial paginado: crece un cierre por día, así que no se manda todo de una vez. */
+export async function list({ page, pageSize }: Pagination): Promise<Page<Closure>> {
+  const totalItems = await closuresRepository.count(pool);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const items = await closuresRepository.findPage(pool, pageSize, (currentPage - 1) * pageSize);
+  return { items, page: currentPage, pageSize, totalItems, totalPages };
 }
 
 /**
