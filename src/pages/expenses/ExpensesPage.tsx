@@ -33,6 +33,8 @@ export default function ExpensesPage() {
   const [description, setDescription] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // Con un gasto aquí, el formulario lo edita en vez de registrar uno nuevo
+  const [editing, setEditing] = useState<Expense | null>(null);
 
   // ─── lista: mes, filtro por área y página ─────────────────────────────────
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
@@ -58,6 +60,26 @@ export default function ExpensesPage() {
     setPage(1);
   };
 
+  const resetForm = () => {
+    setEditing(null);
+    setExpenseDate(startOfDay(new Date()));
+    setAmount("");
+    setArea("Tienda");
+    setCategory("Servicios");
+    setDescription("");
+    setErrors({});
+  };
+
+  const startEdit = (expense: Expense) => {
+    setEditing(expense);
+    setExpenseDate(fromIsoDate(expense.spentOn));
+    setAmount(String(expense.amount));
+    setArea(expense.area);
+    setCategory(expense.category);
+    setDescription(expense.description);
+    setErrors({});
+  };
+
   const handleSave = async () => {
     const parsed = expenseInputSchema.safeParse({
       spentOn: toIsoDate(expenseDate),
@@ -73,17 +95,17 @@ export default function ExpensesPage() {
     setSaving(true);
     setErrors({});
     try {
-      await expensesApi.create(parsed.data);
-      setAmount("");
-      setDescription("");
+      if (editing) await expensesApi.update(editing.id, parsed.data);
+      else await expensesApi.create(parsed.data);
+      resetForm();
       // Se muestra el gasto recién guardado: su mes, la primera página y sin un filtro que lo esconda
-      const createdMonth = startOfMonth(expenseDate);
+      const savedMonth = startOfMonth(expenseDate);
       const hiddenByFilter = filterArea !== undefined && filterArea !== parsed.data.area;
-      const alreadyVisible = page === 1 && createdMonth.getTime() === month.getTime() && !hiddenByFilter;
+      const alreadyVisible = page === 1 && savedMonth.getTime() === month.getTime() && !hiddenByFilter;
       if (alreadyVisible) {
         await refetch();
       } else {
-        setMonth(createdMonth);
+        setMonth(savedMonth);
         setPage(1);
         if (hiddenByFilter) setAreaFilter("Todas");
       }
@@ -99,6 +121,7 @@ export default function ExpensesPage() {
     setActionError(null);
     try {
       await expensesApi.remove(toDelete.id);
+      if (editing?.id === toDelete.id) resetForm();
       // Si era el único gasto de la página, se regresa a la anterior en vez de dejarla vacía
       if (expenses.length === 1 && page > 1) setPage(page - 1);
       else await refetch();
@@ -111,8 +134,8 @@ export default function ExpensesPage() {
   return (
     <div className="split-layout">
       <Card className="form-card">
-        <div className="card-title">Registrar compra o gasto</div>
-        <div className="muted small">Agrega una compra o gasto operativo.</div>
+        <div className="card-title">{editing ? "Editar gasto" : "Registrar compra o gasto"}</div>
+        <div className="muted small">{editing ? "Corrige los datos y guarda los cambios." : "Agrega una compra o gasto operativo."}</div>
         <div className="vertical-form">
           <div className="field">
             <span className="field-label">Área</span>
@@ -131,9 +154,14 @@ export default function ExpensesPage() {
           <TextArea label="Descripción" placeholder="Detalle del gasto" value={description} onChange={setDescription} />
           {errors.description && <span className="field-error">{errors.description}</span>}
           {errors._form && <span className="field-error">{errors._form}</span>}
-          <Button icon="plus" onClick={handleSave} disabled={saving || !amount || !description.trim()}>
-            {saving ? "Guardando..." : "Guardar gasto"}
+          <Button icon={editing ? "check" : "plus"} onClick={handleSave} disabled={saving || !amount || !description.trim()}>
+            {saving ? "Guardando..." : editing ? "Guardar cambios" : "Guardar gasto"}
           </Button>
+          {editing && (
+            <Button variant="secondary" onClick={resetForm} disabled={saving}>
+              Cancelar edición
+            </Button>
+          )}
         </div>
       </Card>
 
@@ -197,6 +225,7 @@ export default function ExpensesPage() {
                       </td>
                       <td>
                         <div className="row-actions">
+                          <IconButton icon="edit" label="Editar" onClick={() => startEdit(row)} />
                           <IconButton icon="trash" label="Eliminar" onClick={() => setToDelete(row)} />
                         </div>
                       </td>

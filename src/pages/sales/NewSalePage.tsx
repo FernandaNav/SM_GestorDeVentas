@@ -1,16 +1,19 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { PaymentMethod, Role } from "@shared/constants";
-import { createSaleSchema, type ClientLookup, type CreateSaleInput, type SaleDetail, type SaleItemInput } from "@shared/schemas/sales";
+import { createSaleSchema, type CreateSaleInput, type SaleDetail, type SaleItemInput } from "@shared/schemas/sales";
 import { ApiError, errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
 import { Badge, Button, Card, FormError, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useClientLookup } from "@/hooks/useClientLookup";
 import { useCurrentDate } from "@/hooks/useCurrentDate";
 import { capitalize, formatQuetzales, SALE_DATE_FORMAT, SALE_TIME_FORMAT } from "@/lib/format";
+import { formatTaxId } from "@/lib/taxId";
 import { issuesToErrors } from "@/lib/validation";
-import InvoicePreview from "@/pages/sales/InvoicePreview";
+import ClientLookupHint from "@/pages/sales/ClientLookupHint";
+import { SaleInvoice } from "@/pages/sales/InvoicePreview";
 import ItemsTable from "@/pages/sales/ItemsTable";
 import SaleSuccess from "@/pages/sales/SaleSuccess";
 import type { SaleItem } from "@/temporal/localStore";
@@ -60,46 +63,14 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
   );
 
   // Autocompletar cliente al escribir NIT / CUI (RNF 3.1)
-  const [clientLookupState, setClientLookupState] = useState<{
-    loading: boolean;
-    found: boolean;
-    client: ClientLookup | null;
-  }>({ loading: false, found: false, client: null });
-
-  useEffect(() => {
-    const clean = clientId.trim().toUpperCase();
-    if (!clean || clean === "CF" || clean.length < 3) {
-      setClientLookupState({ loading: false, found: false, client: null });
-      return;
+  const clientLookup = useClientLookup(clientId, (client) => {
+    setClientName(client.name);
+    setClientAddress(client.address || "");
+    if (client.taxIdType === "NIT" || client.taxIdType === "CUI") {
+      setIdType(client.taxIdType);
+      setClientId(formatTaxId(client.taxIdType, client.taxId));
     }
-
-    let active = true;
-    setClientLookupState((prev) => ({ ...prev, loading: true }));
-
-    const timer = setTimeout(async () => {
-      try {
-        const client = await salesApi.lookupClient(clean);
-        if (!active) return;
-        if (client) {
-          setClientName(client.name);
-          setClientAddress(client.address || "");
-          if (client.taxIdType === "NIT" || client.taxIdType === "CUI") {
-            setIdType(client.taxIdType);
-          }
-          setClientLookupState({ loading: false, found: true, client });
-        } else {
-          setClientLookupState({ loading: false, found: false, client: null });
-        }
-      } catch {
-        if (active) setClientLookupState({ loading: false, found: false, client: null });
-      }
-    }, 350);
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [clientId]);
+  });
 
   const total = items.reduce((acc, item) => acc + item.qty * item.price, 0);
   const isCF = clientId.trim().toUpperCase() === "CF";
@@ -121,15 +92,23 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     refetchInvoiceUsage();
   };
 
-  // Un NIT distinto es otro cliente: no se conservan los datos que se autocompletaron del anterior
+  // Un NIT distinto es otro cliente: no se conservan los datos que se llenaron solos con el anterior
   const handleClientIdChange = (value: string) => {
+    const next = formatTaxId(idType, value);
+    if (next === clientId) return;
     clearErrors();
-    setClientId(value);
-    if (clientLookupState.found) {
+    setClientId(next);
+    if (clientLookup.client || isCF) {
       setClientName("");
       setClientAddress("");
-      setClientLookupState({ loading: false, found: false, client: null });
+      clientLookup.clear();
     }
+  };
+
+  const handleIdTypeChange = (type: "NIT" | "CUI") => {
+    clearErrors();
+    setIdType(type);
+    setClientId(formatTaxId(type, clientId));
   };
 
   const handleFillCF = () => {
@@ -223,28 +202,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
 
   if (isConfirmed && createdSale) {
     if (isInvoiced) {
-      return (
-        <InvoicePreview
-          saleId={createdSale.id}
-          saleDate={createdSale.soldAt}
-          items={createdSale.items.map((it) => ({
-            id: it.id,
-            desc: it.description,
-            cat: it.categoryName,
-            qty: it.quantity,
-            price: it.unitPrice,
-          }))}
-          paymentMethod={createdSale.paymentMethod}
-          seller={createdSale.sellerName}
-          clientId={createdSale.client?.taxId || clientId || "CF"}
-          idType={createdSale.client?.taxIdType || idType}
-          clientName={createdSale.client?.name || clientName}
-          clientAddress={createdSale.client?.address || clientAddress}
-          total={createdSale.total}
-          observations={createdSale.observations}
-          onNewSale={handleResetSale}
-        />
-      );
+      return <SaleInvoice sale={createdSale} onNewSale={handleResetSale} />;
     }
     return <SaleSuccess total={createdSale.total} onNewSale={handleResetSale} onHistory={onHistory} />;
   }
@@ -330,13 +288,13 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
                 <div className="id-type-seg">
                   <UnstyledButton
                     className={idType === "NIT" ? "id-type-btn selected" : "id-type-btn"}
-                    onClick={() => onEdit(setIdType)("NIT")}
+                    onClick={() => handleIdTypeChange("NIT")}
                   >
                     NIT
                   </UnstyledButton>
                   <UnstyledButton
                     className={idType === "CUI" ? "id-type-btn selected" : "id-type-btn"}
-                    onClick={() => onEdit(setIdType)("CUI")}
+                    onClick={() => handleIdTypeChange("CUI")}
                   >
                     CUI
                   </UnstyledButton>
@@ -353,19 +311,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
                 </button>
               </div>
 
-              {clientLookupState.loading && (
-                <div style={{ fontSize: "12px", color: "var(--color-primary)", display: "flex", alignItems: "center", gap: "6px", margin: "4px 0" }}>
-                  <Icon name="history" size="sm" />
-                  <span>Buscando cliente por {idType}...</span>
-                </div>
-              )}
-
-              {clientLookupState.found && clientLookupState.client && (
-                <div style={{ fontSize: "12px", color: "var(--color-success, #10b981)", display: "flex", alignItems: "center", gap: "6px", margin: "4px 0" }}>
-                  <Icon name="check" size="sm" />
-                  <span>Cliente registrado autocompletado: <strong>{clientLookupState.client.name}</strong></span>
-                </div>
-              )}
+              <ClientLookupHint loading={clientLookup.loading} client={clientLookup.client} idType={idType} />
 
               {isCfWarning && (
                 <div className="cf-warning">

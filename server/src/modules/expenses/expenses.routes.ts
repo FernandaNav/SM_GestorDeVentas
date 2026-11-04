@@ -20,6 +20,11 @@ expensesRouter.post("/", async (req, res) => {
   res.status(201).json(await expensesService.create(expenseInputSchema.parse(req.body), req));
 });
 
+expensesRouter.put("/:id", async (req, res) => {
+  const { id } = idParamSchema.parse(req.params);
+  res.json(await expensesService.update(id, expenseInputSchema.parse(req.body), req));
+});
+
 expensesRouter.delete("/:id", async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
   await expensesService.remove(id, req);

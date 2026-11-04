@@ -60,6 +60,15 @@ export async function insert(db: Queryable, input: ExpenseInput, createdBy: numb
   return rows[0];
 }
 
+export async function update(db: Queryable, id: number, input: ExpenseInput): Promise<Expense> {
+  const { rows } = await db.query<Expense>(
+    `UPDATE expenses SET spent_on = $2, amount = $3, area = $4, category = $5, description = $6
+     WHERE id = $1 RETURNING ${COLUMNS}`,
+    [id, input.spentOn, input.amount, input.area, input.category, input.description],
+  );
+  return rows[0];
+}
+
 export async function remove(db: Queryable, id: number): Promise<void> {
   await db.query(`DELETE FROM expenses WHERE id = $1`, [id]);
 }

@@ -8,6 +8,7 @@ import MoneyInput from "@/components/MoneyInput";
 import Segmented from "@/components/Segmented";
 import { FormError, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
+import { formatTaxId } from "@/lib/taxId";
 
 type EditableItem = {
   id: number;
@@ -130,6 +131,11 @@ export default function EditSaleModal({
   const total = items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
   const isCF = taxId.trim().toUpperCase() === "CF";
 
+  const handleTaxIdTypeChange = (type: "NIT" | "CUI") => {
+    setTaxIdType(type);
+    setTaxId(formatTaxId(type, taxId));
+  };
+
   const handleSave = async () => {
     if (!saleId) return;
     setError(null);
@@ -211,7 +217,7 @@ export default function EditSaleModal({
           <p style={{ marginTop: "10px" }}>Cargando datos de la venta...</p>
         </div>
       ) : (
-        <div className="screen-stack" style={{ gap: "16px", maxHeight: "70vh", overflowY: "auto", paddingRight: "6px" }}>
+        <div className="screen-stack" style={{ gap: "16px", maxHeight: "calc(100vh - 300px)", overflowY: "auto", paddingRight: "6px" }}>
           <div className="form-grid two">
             <Select
               label="Vendedor"
@@ -246,20 +252,20 @@ export default function EditSaleModal({
                 <div className="id-type-seg">
                   <UnstyledButton
                     className={taxIdType === "NIT" ? "id-type-btn selected" : "id-type-btn"}
-                    onClick={() => setTaxIdType("NIT")}
+                    onClick={() => handleTaxIdTypeChange("NIT")}
                   >
                     NIT
                   </UnstyledButton>
                   <UnstyledButton
                     className={taxIdType === "CUI" ? "id-type-btn selected" : "id-type-btn"}
-                    onClick={() => setTaxIdType("CUI")}
+                    onClick={() => handleTaxIdTypeChange("CUI")}
                   >
                     CUI
                   </UnstyledButton>
                 </div>
                 <TextInput
                   value={taxId}
-                  onChange={setTaxId}
+                  onChange={(value) => setTaxId(formatTaxId(taxIdType, value))}
                   placeholder={taxIdType === "NIT" ? "NIT del cliente" : "CUI"}
                 />
                 <button

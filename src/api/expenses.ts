@@ -8,5 +8,6 @@ export const expensesApi = {
   list: (range: DateRange, page: number, area?: ExpenseArea, pageSize = 20) =>
     api.get<ExpenseList>(`/expenses${toQuery({ ...range, area, page, pageSize })}`),
   create: (input: ExpenseInput) => api.post<Expense>("/expenses", input),
+  update: (id: number, input: ExpenseInput) => api.put<Expense>(`/expenses/${id}`, input),
   remove: (id: number) => api.delete<void>(`/expenses/${id}`),
 };

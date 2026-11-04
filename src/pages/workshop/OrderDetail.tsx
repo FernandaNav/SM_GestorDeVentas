@@ -8,6 +8,7 @@ import { Button, Card, Icon } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { formatQuetzales } from "@/lib/format";
 import { paths } from "@/layout/navigation";
+import { SaleInvoice } from "@/pages/sales/InvoicePreview";
 import CheckoutModal from "@/pages/workshop/CheckoutModal";
 import OrderItemsCard from "@/pages/workshop/OrderItemsCard";
 import { WORKSHOP_STATUS_SEQUENCE, formatDateTime } from "@/pages/workshop/workshopStatus";
@@ -19,6 +20,7 @@ export default function OrderDetail({ orderId, onBack }: { orderId: number; onBa
   const [actionError, setActionError] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [paidSale, setPaidSale] = useState<SaleDetail | null>(null);
+  const [showInvoice, setShowInvoice] = useState(false);
 
   if (loading) return <div className="muted">Cargando orden...</div>;
   if (!order) {
@@ -28,6 +30,10 @@ export default function OrderDetail({ orderId, onBack }: { orderId: number; onBa
         <div><Button variant="secondary" onClick={onBack}>Volver a Taller</Button></div>
       </div>
     );
+  }
+
+  if (paidSale && showInvoice) {
+    return <SaleInvoice sale={paidSale} closeLabel="Volver a la orden" onClose={() => setShowInvoice(false)} />;
   }
 
   const statusIndex = WORKSHOP_STATUS_SEQUENCE.indexOf(order.status);
@@ -56,6 +62,8 @@ export default function OrderDetail({ orderId, onBack }: { orderId: number; onBa
   const handleCheckout = async (input: WorkshopCheckoutInput) => {
     const result = await workshopApi.checkout(order.id, input);
     setPaidSale(result.sale);
+    // Si se facturó, la factura sale en el mismo flujo, igual que en Nueva venta (RF 1.5)
+    setShowInvoice(result.sale.isInvoiced);
     await refetch();
   };
 
@@ -103,7 +111,10 @@ export default function OrderDetail({ orderId, onBack }: { orderId: number; onBa
             <strong>Orden cobrada y entregada</strong>
             <span>Se registró la venta #{paidSale.id} por {formatQuetzales(paidSale.total)} ({paidSale.paymentMethod}).</span>
           </div>
-          <Button variant="secondary" onClick={() => navigate(paths.salesHistory)}>Ver en historial</Button>
+          <div className="row-actions">
+            {paidSale.isInvoiced && <Button variant="secondary" icon="file" onClick={() => setShowInvoice(true)}>Ver factura</Button>}
+            <Button variant="secondary" onClick={() => navigate(paths.salesHistory)}>Ver en historial</Button>
+          </div>
         </div>
       )}
 

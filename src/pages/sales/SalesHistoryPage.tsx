@@ -12,7 +12,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
 import DeletedSalesPanel from "@/pages/sales/DeletedSalesPanel";
 import EditSaleModal from "@/pages/sales/EditSaleModal";
-import InvoicePreview from "@/pages/sales/InvoicePreview";
+import { SaleInvoice } from "@/pages/sales/InvoicePreview";
 import type { SaleRecord } from "@/temporal/localStore";
 
 const PAGE_SIZE = 20;
@@ -165,28 +165,7 @@ export default function SalesHistory({
 
   // Si está viendo una factura
   if (selectedInvoiceSale) {
-    return (
-      <InvoicePreview
-        saleId={selectedInvoiceSale.id}
-        saleDate={selectedInvoiceSale.soldAt}
-        items={selectedInvoiceSale.items.map((it) => ({
-          id: it.id,
-          desc: it.description,
-          cat: it.categoryName,
-          qty: it.quantity,
-          price: it.unitPrice,
-        }))}
-        paymentMethod={selectedInvoiceSale.paymentMethod}
-        seller={selectedInvoiceSale.sellerName}
-        clientId={selectedInvoiceSale.client?.taxId || "CF"}
-        idType={selectedInvoiceSale.client?.taxIdType || "NIT"}
-        clientName={selectedInvoiceSale.client?.name || "Consumidor Final"}
-        clientAddress={selectedInvoiceSale.client?.address || "Ciudad"}
-        total={selectedInvoiceSale.total}
-        observations={selectedInvoiceSale.observations}
-        onClose={() => setSelectedInvoiceSale(null)}
-      />
-    );
+    return <SaleInvoice sale={selectedInvoiceSale} onClose={() => setSelectedInvoiceSale(null)} />;
   }
 
   return (

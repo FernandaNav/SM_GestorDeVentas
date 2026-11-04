@@ -1,3 +1,4 @@
+import type { SaleDetail } from "@shared/schemas/sales";
 import { settingsApi } from "@/api/settings";
 import { Badge, Button, Icon } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -11,6 +12,44 @@ export type InvoiceItemData = {
   qty: number;
   price: number;
 };
+
+/** Factura de una venta ya registrada. */
+export function SaleInvoice({
+  sale,
+  onNewSale,
+  onClose,
+  closeLabel,
+}: {
+  sale: SaleDetail;
+  onNewSale?: () => void;
+  onClose?: () => void;
+  closeLabel?: string;
+}) {
+  return (
+    <InvoicePreview
+      saleId={sale.id}
+      saleDate={sale.soldAt}
+      items={sale.items.map((item) => ({
+        id: item.id,
+        desc: item.description,
+        cat: item.categoryName,
+        qty: item.quantity,
+        price: item.unitPrice,
+      }))}
+      paymentMethod={sale.paymentMethod}
+      seller={sale.sellerName}
+      clientId={sale.client?.taxId || "CF"}
+      idType={sale.client?.taxIdType || "NIT"}
+      clientName={sale.client?.name || "Consumidor Final"}
+      clientAddress={sale.client?.address || "Ciudad"}
+      total={sale.total}
+      observations={sale.observations}
+      onNewSale={onNewSale}
+      onClose={onClose}
+      closeLabel={closeLabel}
+    />
+  );
+}
 
 export default function InvoicePreview({
   saleId,
@@ -26,6 +65,7 @@ export default function InvoicePreview({
   observations,
   onNewSale,
   onClose,
+  closeLabel = "Volver al historial",
 }: {
   saleId?: number | string;
   saleDate?: string;
@@ -40,6 +80,7 @@ export default function InvoicePreview({
   observations?: string | null;
   onNewSale?: () => void;
   onClose?: () => void;
+  closeLabel?: string;
 }) {
   const { data: settings } = useApiQuery("settings:invoice", settingsApi.get);
   const companyName = settings?.companyName || "SoloMotos Quetzaltenango";
@@ -63,7 +104,7 @@ export default function InvoicePreview({
         <div>
           {onClose && (
             <Button variant="secondary" icon="chevron" onClick={onClose}>
-              Volver al historial
+              {closeLabel}
             </Button>
           )}
         </div>

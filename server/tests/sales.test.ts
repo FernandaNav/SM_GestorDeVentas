@@ -574,6 +574,76 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("edición de gastos", () => {
+    const expense = { spentOn: "2026-01-15", amount: 150.5, area: "Tienda", category: "Servicios", description: "Luz del local" };
+
+    it("cambia los datos y deja huella con el antes y el después", async () => {
+      const { data: created } = await admin("POST", "/expenses", expense);
+      const changes = { spentOn: "2026-01-20", amount: 175.25, area: "Taller", category: "Repuestos", description: "Compra corregida" };
+
+      const { status, data } = await admin("PUT", `/expenses/${created.id}`, changes);
+      assert.equal(status, 200);
+      assert.deepEqual(data, { id: created.id, ...changes });
+
+      const { rows } = await pool.query(
+        `SELECT before_data, after_data FROM audit_log WHERE entity = 'expenses' AND entity_id = $1 AND action = 'editar'`,
+        [String(created.id)],
+      );
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].before_data.description, "Luz del local");
+      assert.equal(rows[0].after_data.amount, 175.25);
+    });
+
+    it("los totales por área reflejan el cambio", async () => {
+      const range = "from=2026-03-01&to=2026-03-31";
+      const { data: created } = await admin("POST", "/expenses", { ...expense, spentOn: "2026-03-10", amount: 100 });
+      assert.equal((await admin("GET", `/expenses?${range}`)).data.summary.byArea.Tienda, 100);
+
+      await admin("PUT", `/expenses/${created.id}`, { ...expense, spentOn: "2026-03-10", amount: 100, area: "Taller" });
+      const { summary } = (await admin("GET", `/expenses?${range}`)).data;
+      assert.equal(summary.byArea.Tienda, 0);
+      assert.equal(summary.byArea.Taller, 100);
+    });
+
+    it("valida los datos y no cambia nada si son inválidos", async () => {
+      const { data: created } = await admin("POST", "/expenses", { ...expense, spentOn: "2026-04-10" });
+      const { status, data } = await admin("PUT", `/expenses/${created.id}`, { ...expense, spentOn: "2026-04-10", amount: -5 });
+      assert.equal(status, 400);
+      assert.ok(data.fields.amount);
+      const { data: list } = await admin("GET", "/expenses?from=2026-04-10&to=2026-04-10");
+      assert.equal(list.items[0].amount, expense.amount);
+    });
+
+    it("responde 404 si el gasto no existe, y 403 al empleado", async () => {
+      assert.equal((await admin("PUT", "/expenses/99999999", expense)).status, 404);
+      const { data: created } = await admin("POST", "/expenses", { ...expense, spentOn: "2026-05-10" });
+      assert.equal((await employee("PUT", `/expenses/${created.id}`, expense)).status, 403);
+    });
+  });
+
+  describe("cobro de taller con factura", () => {
+    it("devuelve la venta con su cliente y lo deja disponible para autocompletar", async () => {
+      const { data: order } = await admin("POST", "/workshop", { clientName: "Ana", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "servicio", description: "Mano de obra", categoryId: serviceId, quantity: 1, unitPrice: 75 });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "En reparación" });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
+
+      const { status, data } = await employee("POST", `/workshop/${order.id}/checkout`, {
+        sellerId,
+        paymentMethod: "Efectivo",
+        isInvoiced: true,
+        client: { taxIdType: "NIT", taxId: "9988776-5", name: "Cliente de Taller", address: "Zona 1" },
+      });
+      assert.equal(status, 201);
+      assert.equal(data.sale.isInvoiced, true);
+      assert.equal(data.sale.client.name, "Cliente de Taller");
+
+      const lookup = await employee("GET", "/sales/clients/99887765");
+      assert.equal(lookup.data.name, "Cliente de Taller");
+      assert.equal(lookup.data.address, "Zona 1");
+    });
+  });
+
   describe("comisiones paginadas", () => {
     let today: string;
     const itemsRoute = (query: string) => `/commissions/items?from=${today}&to=${today}${query}`;

@@ -29,6 +29,16 @@ export function create(input: ExpenseInput, req: Request): Promise<Expense> {
   });
 }
 
+export function update(id: number, input: ExpenseInput, req: Request): Promise<Expense> {
+  return withTransaction(async (db) => {
+    const before = await expensesRepository.findById(db, id);
+    if (!before) throw notFound("Gasto");
+    const updated = await expensesRepository.update(db, id, input);
+    await recordAudit(db, req, { action: "editar", entity: "expenses", entityId: id, before, after: updated });
+    return updated;
+  });
+}
+
 export function remove(id: number, req: Request): Promise<void> {
   return withTransaction(async (db) => {
     const before = await expensesRepository.findById(db, id);
