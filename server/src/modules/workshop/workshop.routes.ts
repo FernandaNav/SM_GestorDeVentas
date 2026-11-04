@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { idParamSchema } from "@shared/schemas/common";
+import { idParamSchema, paginationSchema } from "@shared/schemas/common";
 import {
   createWorkshopOrderSchema,
   workshopCheckoutSchema,
-  workshopFiltersSchema,
+  workshopHistoryFiltersSchema,
   workshopItemInputSchema,
   workshopItemParamsSchema,
   workshopStatusChangeSchema,
@@ -14,9 +14,19 @@ import * as workshopService from "./workshop.service";
 // trae la venta ya filtrada por rol (el Empleado no recibe comisiones).
 export const workshopRouter = Router();
 
-// ?view=activas (por defecto) | historial
-workshopRouter.get("/", async (req, res) => {
-  res.json(await workshopService.list(workshopFiltersSchema.parse(req.query)));
+// Órdenes que siguen en el taller (Recibida, En reparación, Lista para entregar)
+workshopRouter.get("/", async (_req, res) => {
+  res.json(await workshopService.listActive());
+});
+
+// Entregadas, paginadas: ?search=...&page=1&pageSize=20. Van antes de /:id.
+workshopRouter.get("/history", async (req, res) => {
+  const filters = workshopHistoryFiltersSchema.parse(req.query);
+  res.json(await workshopService.listHistory(filters, paginationSchema.parse(req.query)));
+});
+
+workshopRouter.get("/summary", async (_req, res) => {
+  res.json(await workshopService.summary());
 });
 
 workshopRouter.post("/", async (req, res) => {

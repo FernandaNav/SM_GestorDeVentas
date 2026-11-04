@@ -1,6 +1,6 @@
 import type { SaleItemOrigin, TaxIdType } from "@shared/constants";
 import type { DateRange } from "@shared/schemas/common";
-import type { SaleDetail, SaleFilters, SaleItem, SaleSummary } from "@shared/schemas/sales";
+import type { DeletedSale, DeletedSaleFilters, SaleDetail, SaleFilters, SaleItem, SaleSummary } from "@shared/schemas/sales";
 import type { Queryable } from "../../db/pool";
 import { betweenBusinessDays, inClosedPeriod } from "../../lib/dates";
 
@@ -275,3 +275,48 @@ export async function deleteSale(db: Queryable, id: number): Promise<void> {
   await db.query(`DELETE FROM sales WHERE id = $1`, [id]);
 }
 
+
+// ─── ventas eliminadas ──────────────────────────────────────────────────────
+
+// Se leen de la copia que deja la bitácora al eliminar (before_data), así no hace falta
+// conservar la venta en sales y ningún reporte ni cierre tiene que filtrarla.
+// $3 = texto a buscar; $4 = el mismo texto como número de venta ("#12" o "12").
+const DELETED_WHERE = `
+  WHERE a.entity = 'sales' AND a.action = 'eliminar'
+    AND ${betweenBusinessDays("a.created_at", "$1", "$2")}
+    AND ($3::text IS NULL
+      OR a.entity_id = $4
+      OR a.before_data->>'sellerName' ILIKE '%' || $3 || '%'
+      OR a.before_data->'client'->>'name' ILIKE '%' || $3 || '%'
+      OR a.before_data->'client'->>'taxId' ILIKE '%' || $3 || '%'
+      OR EXISTS (
+        SELECT 1 FROM jsonb_array_elements(coalesce(a.before_data->'items', '[]'::jsonb)) AS item
+        WHERE item->>'description' ILIKE '%' || $3 || '%'
+      ))`;
+
+const deletedParams = (filters: DeletedSaleFilters) => {
+  const search = filters.search || null;
+  return [filters.from, filters.to, search, search?.replace(/^#/, "") ?? null];
+};
+
+export async function countDeleted(db: Queryable, filters: DeletedSaleFilters): Promise<number> {
+  const { rows } = await db.query<{ total: number }>(`SELECT count(*)::int AS total FROM audit_log a ${DELETED_WHERE}`, deletedParams(filters));
+  return rows[0].total;
+}
+
+export async function findDeletedPage(db: Queryable, filters: DeletedSaleFilters, limit: number, offset: number): Promise<DeletedSale[]> {
+  const { rows } = await db.query<DeletedSale>(
+    `SELECT a.id AS "auditId",
+            a.entity_id::bigint AS "saleId",
+            a.created_at AS "deletedAt",
+            a.user_role AS "deletedByRole",
+            a.after_data->>'reason' AS reason,
+            a.before_data AS sale
+     FROM audit_log a
+     ${DELETED_WHERE}
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT $5 OFFSET $6`,
+    [...deletedParams(filters), limit, offset],
+  );
+  return rows;
+}

@@ -1,16 +1,18 @@
 import type { Request } from "express";
 import type pg from "pg";
 import type { WorkshopStatus } from "@shared/constants";
+import type { Page, Pagination } from "@shared/schemas/common";
 import { createSaleSchema, type SaleDetail } from "@shared/schemas/sales";
 import {
   formatOrderNumber,
   nextWorkshopStatus,
   type CreateWorkshopOrderInput,
   type WorkshopCheckoutInput,
-  type WorkshopFilters,
+  type WorkshopHistoryFilters,
   type WorkshopItemInput,
   type WorkshopOrderDetail,
   type WorkshopOrderSummary,
+  type WorkshopSummary,
 } from "@shared/schemas/workshop";
 import { pool, withTransaction, type Queryable } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
@@ -22,8 +24,21 @@ import * as salesService from "../sales/sales.service";
 import * as staffRepository from "../staff/staff.repository";
 import * as workshopRepository from "./workshop.repository";
 
-export function list(filters: WorkshopFilters): Promise<WorkshopOrderSummary[]> {
-  return workshopRepository.findSummaries(pool, filters);
+export function listActive(): Promise<WorkshopOrderSummary[]> {
+  return workshopRepository.findActive(pool);
+}
+
+/** Órdenes entregadas, de la más reciente a la más antigua. */
+export async function listHistory(filters: WorkshopHistoryFilters, { page, pageSize }: Pagination): Promise<Page<WorkshopOrderSummary>> {
+  const totalItems = await workshopRepository.countHistory(pool, filters);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const items = await workshopRepository.findHistoryPage(pool, filters, pageSize, (currentPage - 1) * pageSize);
+  return { items, page: currentPage, pageSize, totalItems, totalPages };
+}
+
+export function summary(): Promise<WorkshopSummary> {
+  return workshopRepository.findSummaryCounts(pool);
 }
 
 export async function get(id: number): Promise<WorkshopOrderDetail> {

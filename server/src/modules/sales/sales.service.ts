@@ -2,7 +2,16 @@ import type { Request } from "express";
 import type pg from "pg";
 import type { Role, SaleItemOrigin } from "@shared/constants";
 import type { Page, Pagination } from "@shared/schemas/common";
-import { calculateTotal, type CreateSaleInput, type SaleDetail, type SaleFilters, type SaleItemInput, type SaleSummary } from "@shared/schemas/sales";
+import {
+  calculateTotal,
+  type CreateSaleInput,
+  type DeletedSale,
+  type DeletedSaleFilters,
+  type SaleDetail,
+  type SaleFilters,
+  type SaleItemInput,
+  type SaleSummary,
+} from "@shared/schemas/sales";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
 import { businessDayOf, todayInGuatemala } from "../../lib/dates";
@@ -139,15 +148,25 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
   });
 }
 
-export async function deleteSale(id: number, req: Request): Promise<void> {
+export async function deleteSale(id: number, req: Request, reason?: string): Promise<void> {
   return withTransaction(async (db) => {
     const before = await salesRepository.findDetail(db, id);
     if (!before) throw notFound("Venta");
 
     await reopenWorkshopOrder(db, req, before);
     await salesRepository.deleteSale(db, id);
-    await recordAudit(db, req, { action: "eliminar", entity: "sales", entityId: id, before });
+    // La copia completa (before) es lo que muestra el historial de ventas eliminadas
+    await recordAudit(db, req, { action: "eliminar", entity: "sales", entityId: id, before, after: reason ? { reason } : undefined });
   });
+}
+
+/** Historial de ventas eliminadas, de la más reciente a la más antigua. Solo Administrador. */
+export async function listDeletedSales(filters: DeletedSaleFilters, { page, pageSize }: Pagination): Promise<Page<DeletedSale>> {
+  const totalItems = await salesRepository.countDeleted(pool, filters);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const items = await salesRepository.findDeletedPage(pool, filters, pageSize, (currentPage - 1) * pageSize);
+  return { items, page: currentPage, pageSize, totalItems, totalPages };
 }
 
 

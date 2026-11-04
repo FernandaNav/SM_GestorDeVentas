@@ -1,11 +1,12 @@
 import type { WorkshopStatus } from "@shared/constants";
 import type {
   CreateWorkshopOrderInput,
-  WorkshopFilters,
+  WorkshopHistoryFilters,
   WorkshopItemInput,
   WorkshopOrderEvent,
   WorkshopOrderItem,
   WorkshopOrderSummary,
+  WorkshopSummary,
 } from "@shared/schemas/workshop";
 import type { Queryable } from "../../db/pool";
 
@@ -36,20 +37,60 @@ const SUMMARY_FROM = `
     WHERE i.order_id = o.id
   ) totals ON true`;
 
-// El historial solo trae las más recientes: las entregadas crecen sin límite
-const HISTORY_LIMIT = 200;
-
-export async function findSummaries(db: Queryable, { view }: WorkshopFilters): Promise<WorkshopOrderSummary[]> {
-  const { rows } =
-    view === "activas"
-      ? await db.query<WorkshopOrderSummary>(
-          `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} WHERE o.status <> 'Entregada' ORDER BY o.received_at`,
-        )
-      : await db.query<WorkshopOrderSummary>(
-          `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} WHERE o.status = 'Entregada' ORDER BY o.delivered_at DESC LIMIT $1`,
-          [HISTORY_LIMIT],
-        );
+/** Las que siguen en el taller. No se paginan: son el trabajo del día y no se acumulan. */
+export async function findActive(db: Queryable): Promise<WorkshopOrderSummary[]> {
+  const { rows } = await db.query<WorkshopOrderSummary>(
+    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} WHERE o.status <> 'Entregada' ORDER BY o.received_at`,
+  );
   return rows;
+}
+
+// Entregadas que coinciden con la búsqueda. $1 = texto; $2 = el mismo texto como número de
+// orden ("OT-0007", "ot7" o "7" → 7), para encontrarla aunque esté en otra página.
+const HISTORY_WHERE = `
+  WHERE o.status = 'Entregada'
+    AND ($1::text IS NULL
+      OR o.id = $2
+      OR o.client_name ILIKE '%' || $1 || '%'
+      OR o.motorcycle ILIKE '%' || $1 || '%'
+      OR o.plate ILIKE '%' || $1 || '%'
+      OR o.client_phone ILIKE '%' || $1 || '%')`;
+
+const historyParams = ({ search }: WorkshopHistoryFilters) => {
+  const text = search || null;
+  const orderNumber = text?.match(/^(?:OT-?)?0*(\d{1,9})$/i)?.[1];
+  return [text, orderNumber ? Number(orderNumber) : null];
+};
+
+export async function countHistory(db: Queryable, filters: WorkshopHistoryFilters): Promise<number> {
+  const { rows } = await db.query<{ total: number }>(
+    `SELECT count(*)::int AS total FROM workshop_orders o ${HISTORY_WHERE}`,
+    historyParams(filters),
+  );
+  return rows[0].total;
+}
+
+export async function findHistoryPage(
+  db: Queryable,
+  filters: WorkshopHistoryFilters,
+  limit: number,
+  offset: number,
+): Promise<WorkshopOrderSummary[]> {
+  const { rows } = await db.query<WorkshopOrderSummary>(
+    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} ${HISTORY_WHERE} ORDER BY o.delivered_at DESC, o.id DESC LIMIT $3 OFFSET $4`,
+    [...historyParams(filters), limit, offset],
+  );
+  return rows;
+}
+
+export async function findSummaryCounts(db: Queryable): Promise<WorkshopSummary> {
+  const { rows } = await db.query<WorkshopSummary>(
+    `SELECT count(*) FILTER (WHERE business_date(delivered_at) = business_date(now()))::int AS "deliveredToday",
+            count(*)::int AS "deliveredTotal"
+     FROM workshop_orders
+     WHERE status = 'Entregada'`,
+  );
+  return rows[0];
 }
 
 /** Con `forUpdate` bloquea la orden hasta terminar la transacción, para que dos estaciones no la cobren a la vez. */
