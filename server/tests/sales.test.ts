@@ -516,6 +516,62 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       assert.equal(data.items.length, 1);
       assert.equal((await employee("GET", "/workshop/summary")).status, 200);
     });
+
+    describe("el empleado solo ve lo entregado hoy", () => {
+      let todayOrder: number;
+      let oldOrder: number;
+      let lateYesterdayOrder: number;
+
+      before(async () => {
+        todayOrder = await deliveredOrder("Fecha Hoy");
+        oldOrder = await deliveredOrder("Fecha Vieja");
+        lateYesterdayOrder = await deliveredOrder("Fecha Anoche");
+        await pool.query(`UPDATE workshop_orders SET delivered_at = now() - interval '3 days' WHERE id = $1`, [oldOrder]);
+        await pool.query(
+          `UPDATE workshop_orders
+           SET delivered_at = ((now() AT TIME ZONE 'America/Guatemala')::date - 1 + time '23:30') AT TIME ZONE 'America/Guatemala'
+           WHERE id = $1`,
+          [lateYesterdayOrder],
+        );
+      });
+
+      const idsIn = async (token: typeof admin, query: string) =>
+        (await token("GET", `/workshop/history?${query}&pageSize=100`)).data.items.map((order: any) => order.id);
+
+      it("el historial solo trae las de hoy; el Administrador las ve todas", async () => {
+        assert.deepEqual(await idsIn(employee, "search=Fecha"), [todayOrder]);
+        assert.deepEqual(new Set(await idsIn(admin, "search=Fecha")), new Set([todayOrder, oldOrder, lateYesterdayOrder]));
+      });
+
+      it("no encuentra una orden antigua buscando su número", async () => {
+        assert.deepEqual(await idsIn(employee, `search=${oldOrder}`), []);
+        assert.deepEqual(await idsIn(admin, `search=${oldOrder}`), [oldOrder]);
+      });
+
+      it("el detalle de una orden antigua responde igual que si no existiera", async () => {
+        const old = await employee("GET", `/workshop/${oldOrder}`);
+        const missing = await employee("GET", "/workshop/99999999");
+        assert.equal(old.status, 404);
+        assert.deepEqual(old.data, missing.data);
+        assert.equal((await employee("GET", `/workshop/${lateYesterdayOrder}`)).status, 404, "ayer 23:30 en Guatemala no es hoy");
+        assert.equal((await employee("GET", `/workshop/${todayOrder}`)).status, 200);
+        assert.equal((await admin("GET", `/workshop/${oldOrder}`)).status, 200);
+      });
+
+      it("sigue viendo las órdenes activas, sin importar cuándo se recibieron", async () => {
+        const { data: order } = await admin("POST", "/workshop", { clientName: "Sigue Activa", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+        await pool.query(`UPDATE workshop_orders SET received_at = now() - interval '10 days' WHERE id = $1`, [order.id]);
+        assert.equal((await employee("GET", `/workshop/${order.id}`)).status, 200);
+        assert.ok((await employee("GET", "/workshop")).data.some((active: any) => active.id === order.id));
+      });
+
+      it("el contador del historial solo cuenta lo que cada rol puede ver", async () => {
+        const employeeSummary = (await employee("GET", "/workshop/summary")).data;
+        const adminSummary = (await admin("GET", "/workshop/summary")).data;
+        assert.equal(employeeSummary.deliveredTotal, employeeSummary.deliveredToday);
+        assert.equal(adminSummary.deliveredTotal, employeeSummary.deliveredTotal + 2);
+      });
+    });
   });
 
   describe("comisiones paginadas", () => {

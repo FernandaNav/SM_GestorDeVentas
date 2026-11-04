@@ -46,9 +46,11 @@ export async function findActive(db: Queryable): Promise<WorkshopOrderSummary[]>
 }
 
 // Entregadas que coinciden con la búsqueda. $1 = texto; $2 = el mismo texto como número de
-// orden ("OT-0007", "ot7" o "7" → 7), para encontrarla aunque esté en otra página.
+// orden ("OT-0007", "ot7" o "7" → 7), para encontrarla aunque esté en otra página;
+// $3 = solo las entregadas ese día (NULL = todas).
 const HISTORY_WHERE = `
   WHERE o.status = 'Entregada'
+    AND ($3::date IS NULL OR business_date(o.delivered_at) = $3)
     AND ($1::text IS NULL
       OR o.id = $2
       OR o.client_name ILIKE '%' || $1 || '%'
@@ -56,16 +58,16 @@ const HISTORY_WHERE = `
       OR o.plate ILIKE '%' || $1 || '%'
       OR o.client_phone ILIKE '%' || $1 || '%')`;
 
-const historyParams = ({ search }: WorkshopHistoryFilters) => {
+const historyParams = ({ search }: WorkshopHistoryFilters, deliveredOn: string | null) => {
   const text = search || null;
   const orderNumber = text?.match(/^(?:OT-?)?0*(\d{1,9})$/i)?.[1];
-  return [text, orderNumber ? Number(orderNumber) : null];
+  return [text, orderNumber ? Number(orderNumber) : null, deliveredOn];
 };
 
-export async function countHistory(db: Queryable, filters: WorkshopHistoryFilters): Promise<number> {
+export async function countHistory(db: Queryable, filters: WorkshopHistoryFilters, deliveredOn: string | null): Promise<number> {
   const { rows } = await db.query<{ total: number }>(
     `SELECT count(*)::int AS total FROM workshop_orders o ${HISTORY_WHERE}`,
-    historyParams(filters),
+    historyParams(filters, deliveredOn),
   );
   return rows[0].total;
 }
@@ -73,22 +75,25 @@ export async function countHistory(db: Queryable, filters: WorkshopHistoryFilter
 export async function findHistoryPage(
   db: Queryable,
   filters: WorkshopHistoryFilters,
+  deliveredOn: string | null,
   limit: number,
   offset: number,
 ): Promise<WorkshopOrderSummary[]> {
   const { rows } = await db.query<WorkshopOrderSummary>(
-    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} ${HISTORY_WHERE} ORDER BY o.delivered_at DESC, o.id DESC LIMIT $3 OFFSET $4`,
-    [...historyParams(filters), limit, offset],
+    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM} ${HISTORY_WHERE} ORDER BY o.delivered_at DESC, o.id DESC LIMIT $4 OFFSET $5`,
+    [...historyParams(filters, deliveredOn), limit, offset],
   );
   return rows;
 }
 
-export async function findSummaryCounts(db: Queryable): Promise<WorkshopSummary> {
+/** deliveredTotal cuenta lo que quien consulta puede ver en el historial (deliveredOn = solo ese día). */
+export async function findSummaryCounts(db: Queryable, deliveredOn: string | null): Promise<WorkshopSummary> {
   const { rows } = await db.query<WorkshopSummary>(
     `SELECT count(*) FILTER (WHERE business_date(delivered_at) = business_date(now()))::int AS "deliveredToday",
-            count(*)::int AS "deliveredTotal"
+            count(*) FILTER (WHERE $1::date IS NULL OR business_date(delivered_at) = $1)::int AS "deliveredTotal"
      FROM workshop_orders
      WHERE status = 'Entregada'`,
+    [deliveredOn],
   );
   return rows[0];
 }

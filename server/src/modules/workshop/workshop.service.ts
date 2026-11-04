@@ -1,6 +1,6 @@
 import type { Request } from "express";
 import type pg from "pg";
-import type { WorkshopStatus } from "@shared/constants";
+import type { Role, WorkshopStatus } from "@shared/constants";
 import type { Page, Pagination } from "@shared/schemas/common";
 import { createSaleSchema, type SaleDetail } from "@shared/schemas/sales";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@shared/schemas/workshop";
 import { pool, withTransaction, type Queryable } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
+import { businessDayOf, todayInGuatemala } from "../../lib/dates";
 import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
@@ -28,22 +29,32 @@ export function listActive(): Promise<WorkshopOrderSummary[]> {
   return workshopRepository.findActive(pool);
 }
 
+/** El empleado solo consulta lo entregado hoy (RNF 1.3); null = el Administrador, sin límite de fecha. */
+const visibleDeliveryDay = (role: Role) => (role === "Administrador" ? null : todayInGuatemala());
+
 /** Órdenes entregadas, de la más reciente a la más antigua. */
-export async function listHistory(filters: WorkshopHistoryFilters, { page, pageSize }: Pagination): Promise<Page<WorkshopOrderSummary>> {
-  const totalItems = await workshopRepository.countHistory(pool, filters);
+export async function listHistory(
+  filters: WorkshopHistoryFilters,
+  { page, pageSize }: Pagination,
+  role: Role,
+): Promise<Page<WorkshopOrderSummary>> {
+  const deliveredOn = visibleDeliveryDay(role);
+  const totalItems = await workshopRepository.countHistory(pool, filters, deliveredOn);
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const items = await workshopRepository.findHistoryPage(pool, filters, pageSize, (currentPage - 1) * pageSize);
+  const items = await workshopRepository.findHistoryPage(pool, filters, deliveredOn, pageSize, (currentPage - 1) * pageSize);
   return { items, page: currentPage, pageSize, totalItems, totalPages };
 }
 
-export function summary(): Promise<WorkshopSummary> {
-  return workshopRepository.findSummaryCounts(pool);
+export function summary(role: Role): Promise<WorkshopSummary> {
+  return workshopRepository.findSummaryCounts(pool, visibleDeliveryDay(role));
 }
 
-export async function get(id: number): Promise<WorkshopOrderDetail> {
+export async function get(id: number, role: Role): Promise<WorkshopOrderDetail> {
   const detail = await loadDetail(pool, id);
   if (!detail) throw notFound("Orden de taller");
+  const deliveredOn = visibleDeliveryDay(role);
+  if (deliveredOn && detail.deliveredAt && businessDayOf(detail.deliveredAt) !== deliveredOn) throw notFound("Orden de taller");
   return detail;
 }
 

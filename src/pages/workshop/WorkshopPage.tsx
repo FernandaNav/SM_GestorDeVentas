@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { formatOrderNumber, type CreateWorkshopOrderInput, type WorkshopOrderSummary } from "@shared/schemas/workshop";
 import { workshopApi } from "@/api/workshop";
+import { useSessionUser } from "@/auth/AuthContext";
 import Pagination from "@/components/Pagination";
 import { Badge, Button, Card, Icon, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -29,6 +30,14 @@ export default function WorkshopPage() {
   const [activeTab, setActiveTab] = useState<"activas" | "historial">("activas");
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Aquí y no en el historial: al abrir una orden el historial se desmonta y al regresar debe seguir en su página
+  const [historyPage, setHistoryPage] = useState(1);
+  const isAdmin = useSessionUser().role === "Administrador";
+
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    setHistoryPage(1);
+  };
 
   const { data: activeOrders = [], loading, error, refetch } = useApiQuery("workshop:activas", workshopApi.listActive);
   const { data: summary, refetch: refetchSummary } = useApiQuery("workshop:summary", workshopApi.summary);
@@ -98,10 +107,10 @@ export default function WorkshopPage() {
               Órdenes activas <span className="tab-count">{activeOrders.length}</span>
             </button>
             <button type="button" className={`workshop-tab ${activeTab === "historial" ? "active" : ""}`} onClick={() => setActiveTab("historial")}>
-              Historial <span className="tab-count">{summary?.deliveredTotal ?? 0}</span>
+              {isAdmin ? "Historial" : "Entregadas hoy"} <span className="tab-count">{summary?.deliveredTotal ?? 0}</span>
             </button>
           </div>
-          <TextInput placeholder="Buscar por cliente, moto, placa u orden..." icon="search" value={searchQuery} onChange={setSearchQuery} />
+          <TextInput placeholder="Buscar por cliente, moto, placa u orden..." icon="search" value={searchQuery} onChange={handleSearch} />
         </div>
 
         {activeTab === "activas" ? (
@@ -114,7 +123,7 @@ export default function WorkshopPage() {
             <OrdersTable orders={displayedActive} onOpen={openOrder} />
           )
         ) : (
-          <WorkshopHistory search={searchQuery} onOpen={openOrder} />
+          <WorkshopHistory search={searchQuery} page={historyPage} onPageChange={setHistoryPage} onOpen={openOrder} isAdmin={isAdmin} />
         )}
       </Card>
 
@@ -127,15 +136,20 @@ export default function WorkshopPage() {
  * Órdenes entregadas. Se acumulan sin límite, así que van paginadas y la búsqueda la hace
  * el servidor para encontrar también las de otras páginas. Solo consulta mientras se ve.
  */
-function WorkshopHistory({ search, onOpen }: { search: string; onOpen: (id: number) => void }) {
+function WorkshopHistory({
+  search,
+  page,
+  onPageChange,
+  onOpen,
+  isAdmin,
+}: {
+  search: string;
+  page: number;
+  onPageChange: (page: number) => void;
+  onOpen: (id: number) => void;
+  isAdmin: boolean;
+}) {
   const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DELAY_MS);
-  const [page, setPage] = useState(1);
-  const [lastSearch, setLastSearch] = useState(debouncedSearch);
-  // Una búsqueda nueva empieza en la primera página
-  if (lastSearch !== debouncedSearch) {
-    setLastSearch(debouncedSearch);
-    setPage(1);
-  }
 
   const { data, loading, error } = useApiQuery(`workshop:historial:${debouncedSearch}:${page}`, () =>
     workshopApi.history(page, HISTORY_PAGE_SIZE, debouncedSearch || undefined),
@@ -145,10 +159,11 @@ function WorkshopHistory({ search, onOpen }: { search: string; onOpen: (id: numb
   if (error) return <div className="cf-warning">{error.message}</div>;
   if (loading && orders.length === 0) return <div className="muted" style={{ padding: 16 }}>Cargando historial...</div>;
   if (orders.length === 0) {
+    const emptyTitle = isAdmin ? "Todavía no hay órdenes entregadas" : "Hoy todavía no se han entregado órdenes";
     return (
       <EmptyOrders
-        title={debouncedSearch ? "Ninguna orden coincide con la búsqueda" : "Todavía no hay órdenes entregadas"}
-        text="Aquí aparecen las órdenes ya cobradas y entregadas."
+        title={debouncedSearch ? "Ninguna orden coincide con la búsqueda" : emptyTitle}
+        text={isAdmin ? "Aquí aparecen las órdenes ya cobradas y entregadas." : "Aquí aparecen las órdenes cobradas y entregadas hoy."}
       />
     );
   }
@@ -162,7 +177,7 @@ function WorkshopHistory({ search, onOpen }: { search: string; onOpen: (id: numb
           pageSize={data.pageSize}
           totalItems={data.totalItems}
           totalPages={data.totalPages}
-          onPageChange={setPage}
+          onPageChange={onPageChange}
           noun="órdenes"
         />
       )}

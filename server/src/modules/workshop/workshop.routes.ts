@@ -8,6 +8,7 @@ import {
   workshopItemParamsSchema,
   workshopStatusChangeSchema,
 } from "@shared/schemas/workshop";
+import { currentUser } from "../../middlewares/auth";
 import * as workshopService from "./workshop.service";
 
 // Taller (RF 8.1). Los dos roles crean, avanzan y cobran órdenes; la respuesta del cobro
@@ -20,13 +21,14 @@ workshopRouter.get("/", async (_req, res) => {
 });
 
 // Entregadas, paginadas: ?search=...&page=1&pageSize=20. Van antes de /:id.
+// El empleado solo recibe las de hoy (RNF 1.3), aquí, en el resumen y en el detalle.
 workshopRouter.get("/history", async (req, res) => {
   const filters = workshopHistoryFiltersSchema.parse(req.query);
-  res.json(await workshopService.listHistory(filters, paginationSchema.parse(req.query)));
+  res.json(await workshopService.listHistory(filters, paginationSchema.parse(req.query), currentUser(req).role));
 });
 
-workshopRouter.get("/summary", async (_req, res) => {
-  res.json(await workshopService.summary());
+workshopRouter.get("/summary", async (req, res) => {
+  res.json(await workshopService.summary(currentUser(req).role));
 });
 
 workshopRouter.post("/", async (req, res) => {
@@ -36,7 +38,7 @@ workshopRouter.post("/", async (req, res) => {
 
 workshopRouter.get("/:id", async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
-  res.json(await workshopService.get(id));
+  res.json(await workshopService.get(id, currentUser(req).role));
 });
 
 workshopRouter.post("/:id/items", async (req, res) => {
