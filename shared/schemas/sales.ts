@@ -53,7 +53,7 @@ export const saleClientSchema = z
 export type SaleClientInput = z.infer<typeof saleClientSchema>;
 
 const saleFields = {
-  sellerId: z.number().int().positive("Elige el vendedor"),
+  sellerId: z.number({ message: "Elige el vendedor" }).int().positive("Elige el vendedor"),
   paymentMethod: z.enum(PAYMENT_METHODS, { message: "Elige el método de pago" }),
   isInvoiced: z.boolean(),
   client: saleClientSchema.optional(),

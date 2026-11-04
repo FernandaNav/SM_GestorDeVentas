@@ -52,9 +52,9 @@ export function summary(role: Role): Promise<WorkshopSummary> {
 
 export async function get(id: number, role: Role): Promise<WorkshopOrderDetail> {
   const detail = await loadDetail(pool, id);
-  if (!detail) throw notFound("Orden de taller");
+  if (!detail) throw notFound("la orden de taller");
   const deliveredOn = visibleDeliveryDay(role);
-  if (deliveredOn && detail.deliveredAt && businessDayOf(detail.deliveredAt) !== deliveredOn) throw notFound("Orden de taller");
+  if (deliveredOn && detail.deliveredAt && businessDayOf(detail.deliveredAt) !== deliveredOn) throw notFound("la orden de taller");
   return detail;
 }
 
@@ -95,7 +95,7 @@ export function removeItem(orderId: number, itemId: number, req: Request): Promi
   return withTransaction(async (db) => {
     await lockEditableOrder(db, orderId);
     const removed = await workshopRepository.deleteItem(db, orderId, itemId);
-    if (!removed) throw notFound("Servicio o repuesto");
+    if (!removed) throw notFound("el servicio o repuesto");
     await workshopRepository.insertEvent(db, orderId, `Se quitó ${removed.kind}: ${removed.description}`, currentUser(req).id);
     await recordAudit(db, req, { action: "eliminar", entity: "workshop_order_items", entityId: itemId, before: { orderId, ...removed } });
     return (await loadDetail(db, orderId))!;
@@ -109,7 +109,7 @@ export function removeItem(orderId: number, itemId: number, req: Request): Promi
 export function changeStatus(orderId: number, status: WorkshopStatus, req: Request): Promise<WorkshopOrderDetail> {
   return withTransaction(async (db) => {
     const order = await workshopRepository.findById(db, orderId, { forUpdate: true });
-    if (!order) throw notFound("Orden de taller");
+    if (!order) throw notFound("la orden de taller");
 
     const next = nextWorkshopStatus(order.status);
     if (status === "Entregada") throw new HttpError(400, "Para entregar la orden usa Cobrar y entregar");
@@ -145,7 +145,7 @@ export function checkout(
 ): Promise<{ order: WorkshopOrderDetail; sale: SaleDetail }> {
   return withTransaction(async (db) => {
     const order = await workshopRepository.findById(db, orderId, { forUpdate: true });
-    if (!order) throw notFound("Orden de taller");
+    if (!order) throw notFound("la orden de taller");
     if (order.status === "Entregada" || order.saleId) throw new HttpError(409, "Esta orden ya fue cobrada y entregada");
     if (order.status !== "Lista para entregar") {
       throw new HttpError(409, "La orden debe estar Lista para entregar antes de cobrarla");
@@ -195,7 +195,7 @@ export function checkout(
 
 async function lockEditableOrder(db: pg.PoolClient, orderId: number) {
   const order = await workshopRepository.findById(db, orderId, { forUpdate: true });
-  if (!order) throw notFound("Orden de taller");
+  if (!order) throw notFound("la orden de taller");
   if (order.status === "Entregada") throw new HttpError(409, "La orden ya fue entregada y cobrada; no se puede modificar");
   return order;
 }

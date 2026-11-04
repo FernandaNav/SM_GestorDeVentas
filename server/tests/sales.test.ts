@@ -27,6 +27,7 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
   let baseUrl: string;
   let adminToken: string;
   let employeeToken: string;
+  let initialPassword: string;
   let sellerId: number;
   let mechanicId: number;
   let accessoryId: number;
@@ -101,8 +102,8 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       await pool.query(await readFile(path.join(migrationsDir, file), "utf8"));
     }
 
-    const password = randomBytes(16).toString("hex");
-    const passwordHash = await hashPassword(password);
+    initialPassword = randomBytes(16).toString("hex");
+    const passwordHash = await hashPassword(initialPassword);
     await pool.query(
       `INSERT INTO users (username, role, password_hash) VALUES ('admin', 'Administrador', $1), ('empleado', 'Empleado', $1)`,
       [passwordHash],
@@ -120,7 +121,7 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     await new Promise((resolve) => server.once("listening", resolve));
     baseUrl = `http://localhost:${(server.address() as AddressInfo).port}/api`;
 
-    const login = async (role: string) => (await call(null, "POST", "/auth/login", { role, password })).data.token as string;
+    const login = async (role: string) => (await call(null, "POST", "/auth/login", { role, password: initialPassword })).data.token as string;
     adminToken = await login("Administrador");
     employeeToken = await login("Empleado");
   });
@@ -641,6 +642,74 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       const lookup = await employee("GET", "/sales/clients/99887765");
       assert.equal(lookup.data.name, "Cliente de Taller");
       assert.equal(lookup.data.address, "Zona 1");
+    });
+  });
+
+  it("pide elegir al vendedor si no se indica", async () => {
+    const { sellerId: _omitted, ...withoutSeller } = counterSale();
+    const { status, data } = await admin("POST", "/sales", withoutSeller);
+    assert.equal(status, 400);
+    assert.equal(data.fields.sellerId, "Elige el vendedor");
+  });
+
+  it("los mensajes de 'no encontrado' están bien escritos", async () => {
+    assert.equal((await admin("GET", "/sales/99999999")).data.error, "No se encontró la venta");
+    assert.equal((await admin("GET", "/workshop/99999999")).data.error, "No se encontró la orden de taller");
+    assert.equal((await admin("PUT", "/expenses/99999999", { spentOn: "2026-01-01", amount: 1, area: "Tienda", category: "Otros", description: "Nada" })).data.error, "No se encontró el gasto");
+  });
+
+  describe("sesiones y contraseñas", () => {
+    const me = (token: string) => call(token, "GET", "/auth/me");
+    const login = (role: string, password: string) => call(null, "POST", "/auth/login", { role, password });
+
+    it("un token sin la huella de la contraseña ya no sirve", async () => {
+      const jwt = (await import("jsonwebtoken")).default;
+      const { data: user } = await me(employeeToken);
+      const oldFormat = jwt.sign(user, process.env.JWT_SECRET!, { expiresIn: "12h" });
+      assert.equal((await me(oldFormat)).status, 401);
+    });
+
+    it("cambiar la contraseña del empleado cierra su sesión, pero no la del administrador", async () => {
+      const previous = employeeToken;
+      const newPassword = "nueva-del-empleado";
+      const { status, data } = await admin("PUT", "/auth/password", { role: "Empleado", newPassword });
+      assert.equal(status, 200);
+      assert.equal(data.token, null);
+
+      assert.equal((await me(previous)).status, 401);
+      assert.equal((await me(adminToken)).status, 200);
+      assert.equal((await login("Empleado", initialPassword)).status, 401);
+
+      const relogin = await login("Empleado", newPassword);
+      assert.equal(relogin.status, 200);
+      employeeToken = relogin.data.token;
+      assert.equal((await me(employeeToken)).status, 200);
+    });
+
+    it("quien cambia su propia contraseña sigue en sesión con un token nuevo", async () => {
+      const previous = adminToken;
+      const { data } = await admin("PUT", "/auth/password", { role: "Administrador", newPassword: "nueva-del-admin" });
+      assert.ok(data.token);
+      assert.equal((await me(previous)).status, 401);
+      assert.equal((await me(data.token)).status, 200);
+      adminToken = data.token;
+    });
+
+    it("el empleado no puede cambiar contraseñas", async () => {
+      assert.equal((await employee("PUT", "/auth/password", { role: "Administrador", newPassword: "intento-del-empleado" })).status, 403);
+    });
+
+    // Va al último del grupo: deja bloqueado el login del empleado en esta corrida
+    it("tras cinco intentos fallidos bloquea el login de ese rol, aunque la contraseña sea correcta", async () => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        assert.equal((await login("Empleado", "contraseña-equivocada")).status, 401);
+      }
+      const blocked = await login("Empleado", "nueva-del-empleado");
+      assert.equal(blocked.status, 429);
+      assert.match(blocked.data.error, /Demasiados intentos/);
+
+      assert.equal((await login("Administrador", "nueva-del-admin")).status, 200, "el otro rol sigue funcionando");
+      assert.equal((await me(employeeToken)).status, 200, "las sesiones abiertas no se afectan");
     });
   });
 

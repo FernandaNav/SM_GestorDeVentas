@@ -85,9 +85,9 @@ export async function listSales(filters: SaleFilters, { page, pageSize }: Pagina
 
 export async function getSale(id: number, role: Role): Promise<SaleDetail> {
   const sale = await salesRepository.findDetail(pool, id);
-  if (!sale) throw notFound("Venta");
+  if (!sale) throw notFound("la venta");
   // Igual que en la lista: el empleado solo consulta las ventas de hoy (RNF 1.3)
-  if (role !== "Administrador" && businessDayOf(sale.soldAt) !== todayInGuatemala()) throw notFound("Venta");
+  if (role !== "Administrador" && businessDayOf(sale.soldAt) !== todayInGuatemala()) throw notFound("la venta");
   return forRole(sale, role);
 }
 
@@ -113,7 +113,7 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
   return withTransaction(async (db) => {
     const user = currentUser(req);
     const before = await salesRepository.findDetail(db, id);
-    if (!before) throw notFound("Venta");
+    if (!before) throw notFound("la venta");
 
     // Quien ya no trabaja aquí puede seguir en sus ventas pasadas; solo no se le puede asignar una nueva
     if (input.sellerId !== before.sellerId) await assertActiveSeller(db, input.sellerId);
@@ -151,7 +151,7 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
 export async function deleteSale(id: number, req: Request, reason?: string): Promise<void> {
   return withTransaction(async (db) => {
     const before = await salesRepository.findDetail(db, id);
-    if (!before) throw notFound("Venta");
+    if (!before) throw notFound("la venta");
 
     await reopenWorkshopOrder(db, req, before);
     await salesRepository.deleteSale(db, id);

@@ -8,4 +8,5 @@ export class HttpError extends Error {
   }
 }
 
-export const notFound = (what: string) => new HttpError(404, `${what} no encontrado`);
+/** notFound("la venta") → "No se encontró la venta" */
+export const notFound = (what: string) => new HttpError(404, `No se encontró ${what}`);

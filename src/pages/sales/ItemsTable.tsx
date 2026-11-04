@@ -2,7 +2,16 @@ import { useCatalog } from "@/catalog/CatalogContext";
 import MoneyInput from "@/components/MoneyInput";
 import { Icon } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
-import type { SaleItem } from "@/temporal/localStore";
+
+/** Una fila del formulario de venta, como se está escribiendo. */
+export type SaleItem = {
+  id: number;
+  desc: string;
+  cat: string;
+  qty: number;
+  price: number;
+  commission: string;
+};
 
 export default function ItemsTable({
   items,

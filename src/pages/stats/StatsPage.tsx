@@ -20,6 +20,7 @@ import {
 } from "@/components/dates";
 import { Card, Select, Toggle } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useSellerFilterOptions } from "@/hooks/useSellerFilterOptions";
 import { formatQuetzales } from "@/lib/format";
 import { BarList, formatChange, LineChart, LineLegend, type LineSeries, percentChange, StackBar } from "./charts";
 import EmptyState from "./EmptyState";
@@ -39,7 +40,8 @@ const ORIGIN_LABELS: Record<SaleItemOrigin, string> = {
 // Estadísticas (RF 4.1 a 4.5). La pantalla solo arma el período y los filtros; las sumas
 // las hace el servidor. Comparar pide el período anterior en la misma consulta.
 export default function StatsPage() {
-  const { sellers, categories } = useCatalog();
+  const { categories } = useCatalog();
+  const sellerOptions = useSellerFilterOptions();
   const [activeTab, setActiveTab] = useState<Tab>("Ventas");
   const [granularity, setGranularity] = useState<PeriodOption>("Mensual");
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
@@ -62,7 +64,7 @@ export default function StatsPage() {
     from: toApiDay(range.start),
     to: toApiDay(range.end),
     paymentMethod: payment === ALL ? undefined : (payment as PaymentMethod),
-    sellerId: sellers.find((s) => s.fullName === sellerName)?.id,
+    sellerId: sellerOptions.find((s) => s.label === sellerName)?.id,
     categoryId: categories.find((c) => c.name === categoryName)?.id,
     ...(compare && { compareFrom: toApiDay(previous.start), compareTo: toApiDay(previous.end) }),
   };
@@ -95,7 +97,7 @@ export default function StatsPage() {
           )}
         </div>
         <Select label="Pago" value={payment} options={[ALL, ...PAYMENT_METHODS]} onChange={setPayment} />
-        <Select label="Vendedor" value={sellerName} options={[ALL, ...sellers.map((s) => s.fullName)]} onChange={setSellerName} />
+        <Select label="Vendedor" value={sellerName} options={[ALL, ...sellerOptions.map((s) => s.label)]} onChange={setSellerName} />
         <Select label="Categoría" value={categoryName} options={[ALL, ...categories.map((c) => c.name)]} onChange={setCategoryName} />
         <Toggle checked={compare} onChange={setCompare} label={`Comparar con ${previousLabel}`} />
       </Card>

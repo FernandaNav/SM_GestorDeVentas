@@ -9,29 +9,18 @@ import { type DateRange, DateRangePicker, presetRange } from "@/components/dates
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useSellerFilterOptions } from "@/hooks/useSellerFilterOptions";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
 import DeletedSalesPanel from "@/pages/sales/DeletedSalesPanel";
 import EditSaleModal from "@/pages/sales/EditSaleModal";
 import { SaleInvoice } from "@/pages/sales/InvoicePreview";
-import type { SaleRecord } from "@/temporal/localStore";
 
 const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
 
-export default function SalesHistory({
-  role,
-  sales: localSales,
-  onInvoice,
-  onUpdateSale,
-  onDeleteSale,
-}: {
-  role: Role;
-  sales?: SaleRecord[];
-  onInvoice?: () => void;
-  onUpdateSale?: (updated: SaleRecord) => void;
-  onDeleteSale?: (id: string | number) => void;
-}) {
-  const { sellers, sellerNames, categories, categoryNames } = useCatalog();
+export default function SalesHistory({ role }: { role: Role }) {
+  const { categories, categoryNames } = useCatalog();
+  const sellerOptions = useSellerFilterOptions();
   const isAdmin = role === "Administrador";
 
   const [page, setPage] = useState(1);
@@ -53,7 +42,7 @@ export default function SalesHistory({
   // Historial de ventas eliminadas (solo Administrador)
   const [showDeleted, setShowDeleted] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
 
   /** Envuelve un setter de filtro: al cambiar lo que se busca se vuelve a la primera página. */
   const onFilter =
@@ -76,7 +65,7 @@ export default function SalesHistory({
       }
 
       if (filterSeller !== "Todos los vendedores") {
-        const found = sellers.find((s) => s.fullName === filterSeller);
+        const found = sellerOptions.find((s) => s.label === filterSeller);
         if (found) filters.sellerId = found.id;
       }
       if (filterCategory !== "Todas las categorías") {
@@ -108,7 +97,7 @@ export default function SalesHistory({
     filterStatus,
     filterPendingCommission,
     debouncedSearch,
-    sellers,
+    sellerOptions,
     categories,
   ]);
 
@@ -133,9 +122,7 @@ export default function SalesHistory({
       const detail = await salesApi.get(saleId);
       setSelectedInvoiceSale(detail);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al cargar la factura";
-      setFeedbackMessage(msg);
-      if (onInvoice) onInvoice();
+      setFeedback({ text: errorMessage(err, "Error al cargar la factura"), isError: true });
     } finally {
       setLoadingInvoiceId(null);
     }
@@ -146,11 +133,10 @@ export default function SalesHistory({
     setIsDeleting(true);
     try {
       await salesApi.delete(deletingSaleId, deleteReason.trim() || undefined);
-      if (onDeleteSale) onDeleteSale(deletingSaleId);
-      setFeedbackMessage(`Venta #${deletingSaleId} eliminada correctamente.`);
+      setFeedback({ text: `Venta #${deletingSaleId} eliminada correctamente.`, isError: false });
       await refetch();
     } catch (err: unknown) {
-      setFeedbackMessage(errorMessage(err, "Error al eliminar la venta"));
+      setFeedback({ text: errorMessage(err, "Error al eliminar la venta"), isError: true });
     } finally {
       setIsDeleting(false);
       // Se cierra también si falló: el aviso se muestra en la página, detrás del modal
@@ -210,26 +196,22 @@ export default function SalesHistory({
         </div>
       </div>
 
-      {feedbackMessage && (
+      {feedback && (
         <div
           className="cf-warning"
+          role={feedback.isError ? "alert" : "status"}
           style={{
-            background: feedbackMessage.includes("correctamente")
-              ? "rgba(16, 185, 129, 0.15)"
-              : "var(--color-danger-soft, #fee2e2)",
-            borderColor: feedbackMessage.includes("correctamente")
-              ? "var(--color-success, #10b981)"
-              : "var(--color-danger, #ef4444)",
-            display: "flex",
+            background: feedback.isError ? "var(--color-danger-soft, #fee2e2)" : "rgba(16, 185, 129, 0.15)",
+            color: feedback.isError ? "var(--color-danger, #dc3545)" : "var(--color-success, #10b981)",
             justifyContent: "space-between",
             alignItems: "center",
           }}
         >
-          <span>{feedbackMessage}</span>
+          <span>{feedback.text}</span>
           <button
             type="button"
             className="icon-button"
-            onClick={() => setFeedbackMessage(null)}
+            onClick={() => setFeedback(null)}
             aria-label="Cerrar aviso"
           >
             ×
@@ -261,7 +243,7 @@ export default function SalesHistory({
           <DateRangePicker value={dateRange} onChange={onFilter(setDateRange)} />
           <Select
             value={filterSeller}
-            options={["Todos los vendedores", ...sellerNames]}
+            options={["Todos los vendedores", ...sellerOptions.map((s) => s.label)]}
             onChange={onFilter(setFilterSeller)}
           />
           <Select
@@ -414,7 +396,7 @@ export default function SalesHistory({
           saleId={editingSaleId}
           onClose={() => setEditingSaleId(null)}
           onSuccess={() => {
-            setFeedbackMessage("Venta actualizada exitosamente y registrada en bitácora.");
+            setFeedback({ text: "Venta actualizada exitosamente y registrada en bitácora.", isError: false });
             refetch();
           }}
         />

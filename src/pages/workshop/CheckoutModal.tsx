@@ -12,6 +12,8 @@ import { formatTaxId } from "@/lib/taxId";
 import { issuesToErrors } from "@/lib/validation";
 import ClientLookupHint from "@/pages/sales/ClientLookupHint";
 
+const CHOOSE_SELLER = "Elige quién cobra";
+
 type Props = {
   order: WorkshopOrderDetail;
   onClose: () => void;
@@ -33,7 +35,8 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const seller = sellers.find((s) => s.fullName === sellerName) ?? sellers[0];
+  // La comisión depende de quién cobró: solo se da por hecho si no hay a quién más elegir
+  const seller = sellers.find((s) => s.fullName === sellerName) ?? (sellers.length === 1 ? sellers[0] : undefined);
   const total = order.itemsTotal;
   const isCF = taxId === "CF";
   const showCfWarning = isInvoiced && isCF && total >= CF_MAX_INVOICE_TOTAL;
@@ -121,7 +124,12 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
 
       <div className="form-grid two" style={{ marginTop: 16 }}>
         <div className="span-two">
-          <Select label="Cobra (vendedor)" value={seller?.fullName ?? ""} options={sellers.map((s) => s.fullName)} onChange={setSellerName} />
+          <Select
+            label="Cobra (vendedor)"
+            value={seller?.fullName ?? CHOOSE_SELLER}
+            options={[...(seller ? [] : [CHOOSE_SELLER]), ...sellers.map((s) => s.fullName)]}
+            onChange={setSellerName}
+          />
           {(errors.sellerId || sellers.length === 0) && (
             <span className="field-error">{sellers.length === 0 ? "No hay vendedores activos; agrégalos en Personal" : errors.sellerId}</span>
           )}

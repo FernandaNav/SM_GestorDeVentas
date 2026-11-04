@@ -14,9 +14,10 @@ import { formatTaxId } from "@/lib/taxId";
 import { issuesToErrors } from "@/lib/validation";
 import ClientLookupHint from "@/pages/sales/ClientLookupHint";
 import { SaleInvoice } from "@/pages/sales/InvoicePreview";
-import ItemsTable from "@/pages/sales/ItemsTable";
+import ItemsTable, { type SaleItem } from "@/pages/sales/ItemsTable";
 import SaleSuccess from "@/pages/sales/SaleSuccess";
-import type { SaleItem } from "@/temporal/localStore";
+
+const CHOOSE_SELLER = "Elige el vendedor";
 
 export default function NewSale({ role, onHistory }: { role: Role; onHistory: () => void }) {
   const { sellers, sellerNames, categories } = useCatalog();
@@ -28,7 +29,8 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     { id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" },
   ]);
   const [chosenSeller, setSeller] = useState("");
-  const seller = chosenSeller || sellerNames[0] || "";
+  // La comisión depende de quién vendió: solo se da por hecho si no hay a quién más elegir
+  const seller = chosenSeller || (sellerNames.length === 1 ? sellerNames[0] : "");
   const [paymentMethod, setPaymentMethod] = useState("Tarjeta");
   const [isInvoiced, setIsInvoiced] = useState(true);
   const [idType, setIdType] = useState<"NIT" | "CUI">("NIT");
@@ -125,7 +127,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
       }, 0)
     : 0;
 
-  const selectedSeller = sellers.find((s) => s.fullName === seller) ?? sellers[0];
+  const selectedSeller = sellers.find((s) => s.fullName === seller);
 
   /** Arma la venta con lo escrito en el formulario. */
   const buildPayload = (sellerId: number): CreateSaleInput => {
@@ -168,7 +170,8 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
   const handleRequestConfirm = () => {
     clearErrors();
     if (!selectedSeller) {
-      setFormError("No hay vendedores activos registrados en el sistema.");
+      setFieldErrors({ sellerId: CHOOSE_SELLER });
+      setFormError(sellers.length > 0 ? CHOOSE_SELLER : "No hay vendedores activos registrados en el sistema.");
       return;
     }
 
@@ -236,7 +239,15 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
                 <small>Hora registrada por el sistema</small>
               </div>
             </div>
-            <Select label="Vendedor" value={seller} options={sellerNames} onChange={setSeller} />
+            <div>
+              <Select
+                label="Vendedor"
+                value={seller || CHOOSE_SELLER}
+                options={seller ? sellerNames : [CHOOSE_SELLER, ...sellerNames]}
+                onChange={onEdit(setSeller)}
+              />
+              {fieldErrors.sellerId && <span className="field-error">{fieldErrors.sellerId}</span>}
+            </div>
           </div>
           <div className="field-block">
             <div className="field-label">Método de pago</div>

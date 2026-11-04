@@ -23,7 +23,7 @@ export function create(input: StaffInput, req: Request): Promise<StaffMember> {
 export function update(id: number, input: StaffInput, req: Request): Promise<StaffMember> {
   return withTransaction(async (db) => {
     const before = await staffRepository.findById(db, id);
-    if (!before) throw notFound("Personal");
+    if (!before) throw notFound("a esa persona");
     const updated = (await staffRepository.update(db, id, input))!;
     await recordAudit(db, req, { action: "editar", entity: "staff", entityId: id, before, after: updated });
     return updated;
@@ -34,7 +34,7 @@ export function update(id: number, input: StaffInput, req: Request): Promise<Sta
 export function setActive(id: number, isActive: boolean, req: Request): Promise<StaffMember> {
   return withTransaction(async (db) => {
     const updated = await staffRepository.setActive(db, id, isActive);
-    if (!updated) throw notFound("Personal");
+    if (!updated) throw notFound("a esa persona");
     await recordAudit(db, req, { action: isActive ? "activar" : "desactivar", entity: "staff", entityId: id });
     return updated;
   });

@@ -32,7 +32,7 @@ export function create(input: ExpenseInput, req: Request): Promise<Expense> {
 export function update(id: number, input: ExpenseInput, req: Request): Promise<Expense> {
   return withTransaction(async (db) => {
     const before = await expensesRepository.findById(db, id);
-    if (!before) throw notFound("Gasto");
+    if (!before) throw notFound("el gasto");
     const updated = await expensesRepository.update(db, id, input);
     await recordAudit(db, req, { action: "editar", entity: "expenses", entityId: id, before, after: updated });
     return updated;
@@ -42,7 +42,7 @@ export function update(id: number, input: ExpenseInput, req: Request): Promise<E
 export function remove(id: number, req: Request): Promise<void> {
   return withTransaction(async (db) => {
     const before = await expensesRepository.findById(db, id);
-    if (!before) throw notFound("Gasto");
+    if (!before) throw notFound("el gasto");
     await expensesRepository.remove(db, id);
     await recordAudit(db, req, { action: "eliminar", entity: "expenses", entityId: id, before });
   });
