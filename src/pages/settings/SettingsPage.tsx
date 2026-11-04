@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { ROLES, type Role } from "@shared/constants";
 import { changePasswordSchema } from "@shared/schemas/auth";
-import { categoryCommissionSchema, settingsInputSchema } from "@shared/schemas/settings";
+import { categoryCommissionSchema, categoryCreateSchema, settingsInputSchema } from "@shared/schemas/settings";
 import { categoriesApi } from "@/api/categories";
 import { ApiError } from "@/api/client";
 import { settingsApi } from "@/api/settings";
-import { Button, Card, Icon, Select, TextArea, TextInput } from "@/components/ui";
+import { Badge, Button, Card, Icon, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import logo from "@/imports/solomotos-logo.png";
 import { type Accent, ACCENTS } from "@/layout/theme";
@@ -92,7 +92,10 @@ export default function SettingsPage({
 
   useEffect(() => {
     if (!categoriesData) return;
-    setRates(Object.fromEntries(categoriesData.map((c) => [c.id, c.defaultCommissionRate?.toString() ?? ""])));
+    // Conserva lo que se está escribiendo; solo llena las categorías que aún no tienen valor en pantalla
+    setRates((prev) =>
+      Object.fromEntries(categoriesData.map((c) => [c.id, prev[c.id] ?? c.defaultCommissionRate?.toString() ?? ""])),
+    );
   }, [categoriesData]);
 
   const handleSaveRates = async () => {
@@ -121,12 +124,63 @@ export default function SettingsPage({
     setSavingRates(true);
     try {
       for (const change of changes) await settingsApi.updateCommission(change.id, change.rate);
+      setRates((prev) => ({ ...prev, ...Object.fromEntries(changes.map((change) => [change.id, change.rate?.toString() ?? ""])) }));
       await refetchCategories();
       setRatesStatus({ ok: "Comisiones guardadas. Se aplican a las ventas nuevas." });
     } catch (err) {
       setRatesStatus({ error: err instanceof ApiError ? err.message : "No se pudo guardar" });
     } finally {
       setSavingRates(false);
+    }
+  };
+
+  // ─── agregar y activar categorías ─────────────────────────────────────────
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryRate, setNewCategoryRate] = useState("");
+  const [newCategoryErrors, setNewCategoryErrors] = useState<Errors>({});
+  const [categoryStatus, setCategoryStatus] = useState<Status>({});
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+
+  const handleAddCategory = async () => {
+    setCategoryStatus({});
+    const rateText = newCategoryRate.trim().replace("%", "");
+    const parsed = categoryCreateSchema.safeParse({ name: newCategoryName, defaultCommissionRate: rateText === "" ? null : Number(rateText) });
+    if (!parsed.success) {
+      setNewCategoryErrors(issuesToErrors(parsed.error.issues));
+      return;
+    }
+    setNewCategoryErrors({});
+    setSavingCategory(true);
+    try {
+      const created = await settingsApi.createCategory(parsed.data);
+      setNewCategoryName("");
+      setNewCategoryRate("");
+      await refetchCategories();
+      setCategoryStatus({ ok: `Categoría "${created.name}" agregada. Ya se puede elegir en ventas y en taller.` });
+    } catch (err) {
+      if (err instanceof ApiError && Object.keys(err.fields).length > 0) setNewCategoryErrors(err.fields);
+      setCategoryStatus({ error: err instanceof ApiError ? err.message : "No se pudo agregar" });
+    } finally {
+      setSavingCategory(false);
+    }
+  };
+
+  const handleToggleCategory = async (id: number, isActive: boolean) => {
+    setCategoryStatus({});
+    setTogglingId(id);
+    try {
+      const updated = await settingsApi.setCategoryActive(id, isActive);
+      await refetchCategories();
+      setCategoryStatus({
+        ok: isActive
+          ? `"${updated.name}" vuelve a estar disponible`
+          : `"${updated.name}" ya no se ofrece en ventas nuevas; las ventas pasadas la conservan`,
+      });
+    } catch (err) {
+      setCategoryStatus({ error: err instanceof ApiError ? err.message : "No se pudo actualizar" });
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -172,23 +226,39 @@ export default function SettingsPage({
         <Card className="form-card">
           <div className="card-heading">
             <div>
-              <div className="card-title">Comisiones por categoría</div>
+              <div className="card-title">Categorías y comisiones</div>
               <div className="muted small">
-                Porcentaje que se aplica solo al registrar una venta. Vacío = se asigna a mano en cada venta (motos).
+                Porcentaje que se aplica solo al registrar una venta. Vacío = se asigna a mano en cada venta (motos). Las
+                categorías no se eliminan: al desactivarlas dejan de ofrecerse, pero las ventas pasadas las conservan.
               </div>
             </div>
             <Icon name="coins" />
           </div>
           <div className="settings-rows">
             {categories.map((category) => (
-              <div key={category.id}>
-                <strong>{category.name}</strong>
-                <TextInput
-                  value={rates[category.id] ?? ""}
-                  placeholder="Sin definir"
-                  onChange={(value) => setRates({ ...rates, [category.id]: value })}
-                  error={rateErrors[category.id]}
-                />
+              <div key={category.id} className={category.isActive ? "" : "category-inactive"}>
+                <div className="category-name">
+                  <strong>{category.name}</strong>
+                  {!category.isActive && <Badge tone="neutral">Inactiva</Badge>}
+                </div>
+                <div className="category-controls">
+                  <TextInput
+                    value={rates[category.id] ?? ""}
+                    placeholder="Sin definir"
+                    onChange={(value) => setRates({ ...rates, [category.id]: value })}
+                    error={rateErrors[category.id]}
+                  />
+                  <button
+                    type="button"
+                    className={`person-toggle ${category.isActive ? "on" : ""}`}
+                    onClick={() => handleToggleCategory(category.id, !category.isActive)}
+                    disabled={togglingId === category.id}
+                    title={category.isActive ? "Activa: haz clic para desactivarla" : "Inactiva: haz clic para activarla"}
+                  >
+                    <span />
+                    <span className="toggle-label">{category.isActive ? "Activa" : "Inactiva"}</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -196,6 +266,23 @@ export default function SettingsPage({
           <Button icon="check" onClick={handleSaveRates} disabled={savingRates}>
             {savingRates ? "Guardando..." : "Guardar comisiones"}
           </Button>
+
+          <div className="category-add">
+            <div className="field-label">Agregar categoría</div>
+            <div className="category-add-row">
+              <TextInput placeholder="Ej. Llantas, Lubricantes" value={newCategoryName} onChange={setNewCategoryName} error={newCategoryErrors.name} />
+              <TextInput
+                placeholder="Comisión % (opcional)"
+                value={newCategoryRate}
+                onChange={setNewCategoryRate}
+                error={newCategoryErrors.defaultCommissionRate}
+              />
+              <Button icon="plus" variant="secondary" onClick={handleAddCategory} disabled={savingCategory}>
+                {savingCategory ? "Agregando..." : "Agregar"}
+              </Button>
+            </div>
+          </div>
+          {statusLine(categoryStatus)}
         </Card>
 
         <Card className="form-card">
