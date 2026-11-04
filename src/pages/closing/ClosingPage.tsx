@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ApiError } from "@/api/client";
 import { closuresApi } from "@/api/closures";
+import Pagination from "@/components/Pagination";
 import { DatePicker, fmtDay, fmtLongDay, fmtRange, fmtRangeLong } from "@/components/dates";
 import { Badge, Button, Card, Icon, Modal } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -18,6 +19,8 @@ const toIsoDate = (date: Date) =>
 
 /** 1 → "1 venta", 3 → "3 ventas" */
 const salesLabel = (count: number) => `${count} ${count === 1 ? "venta" : "ventas"}`;
+
+const HISTORY_PAGE_SIZE = 10;
 
 const CLOSED_AT_FORMAT = new Intl.DateTimeFormat("es-GT", {
   day: "numeric",
@@ -38,7 +41,11 @@ export default function ClosingPage({ onHistory }: { onHistory: () => void }) {
   const [lastClosed, setLastClosed] = useState<string | null>(null);
 
   const { data: period, error, refetch } = useApiQuery(`closures:open:${chosenEnd ?? "hoy"}`, () => closuresApi.open(chosenEnd));
-  const { data: history = [], refetch: refetchHistory } = useApiQuery("closures:history", closuresApi.list);
+  // Historial paginado: crece un cierre por día
+  const [historyPage, setHistoryPage] = useState(1);
+  const { data: history, refetch: refetchHistory } = useApiQuery(`closures:history:${historyPage}`, () =>
+    closuresApi.list(historyPage, HISTORY_PAGE_SIZE),
+  );
 
   if (!period) {
     return <div className="screen-stack">{error ? <div className="cf-warning">{error.message}</div> : <Card>Cargando...</Card>}</div>;
@@ -61,7 +68,12 @@ export default function ClosingPage({ onHistory }: { onHistory: () => void }) {
       const created = await closuresApi.close({ periodStart: period.periodStart, periodEnd: period.periodEnd });
       setLastClosed(fmtRange({ start: fromIsoDate(created.periodStart), end: fromIsoDate(created.periodEnd) }));
       setChosenEnd(undefined);
-      await Promise.all([refetch(), refetchHistory()]);
+      // El cierre nuevo aparece primero en el historial
+      if (historyPage === 1) await Promise.all([refetch(), refetchHistory()]);
+      else {
+        setHistoryPage(1);
+        await refetch();
+      }
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "No se pudo cerrar el período");
       await refetch();
@@ -177,9 +189,10 @@ export default function ClosingPage({ onHistory }: { onHistory: () => void }) {
 
       <Card>
         <div className="card-title">Cierres anteriores</div>
-        {history.length === 0 ? (
+        {!history || history.totalItems === 0 ? (
           <div className="muted small">Todavía no se ha hecho ningún cierre.</div>
         ) : (
+          <>
           <div className="table-wrap">
             <table>
               <thead>
@@ -195,7 +208,7 @@ export default function ClosingPage({ onHistory }: { onHistory: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {history.map((closure) => (
+                {history.items.map((closure) => (
                   <tr key={closure.id}>
                     <td>
                       {closure.periodStart === closure.periodEnd
@@ -216,6 +229,15 @@ export default function ClosingPage({ onHistory }: { onHistory: () => void }) {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={history.page}
+            pageSize={history.pageSize}
+            totalItems={history.totalItems}
+            totalPages={history.totalPages}
+            onPageChange={setHistoryPage}
+            noun="cierres"
+          />
+          </>
         )}
       </Card>
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { dateRangeSchema, idParamSchema } from "@shared/schemas/common";
-import { expenseInputSchema } from "@shared/schemas/expenses";
+import { dateRangeSchema, idParamSchema, paginationSchema } from "@shared/schemas/common";
+import { expenseAreaFilterSchema, expenseInputSchema } from "@shared/schemas/expenses";
 import { requireRole } from "../../middlewares/auth";
 import * as expensesService from "./expenses.service";
 
@@ -8,8 +8,12 @@ import * as expensesService from "./expenses.service";
 export const expensesRouter = Router();
 expensesRouter.use(requireRole("Administrador"));
 
+// ?from=AAAA-MM-DD&to=AAAA-MM-DD&area=Taller&page=1&pageSize=20 (área y página son opcionales)
 expensesRouter.get("/", async (req, res) => {
-  res.json(await expensesService.list(dateRangeSchema.parse(req.query)));
+  const range = dateRangeSchema.parse(req.query);
+  const { area } = expenseAreaFilterSchema.parse(req.query);
+  const pagination = paginationSchema.parse(req.query);
+  res.json(await expensesService.list(range, area, pagination));
 });
 
 expensesRouter.post("/", async (req, res) => {

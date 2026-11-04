@@ -22,6 +22,11 @@ export type WorkshopStatus = (typeof WORKSHOP_STATUSES)[number];
 export const EXPENSE_CATEGORIES = ["Servicios", "Repuestos", "Renta", "Planilla", "Otros"] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
+
+/** Área del negocio a la que pertenece un gasto. */
+export const EXPENSE_AREAS = ["Tienda", "Taller"] as const;
+export type ExpenseArea = (typeof EXPENSE_AREAS)[number];
+
 /** La SAT exige NIT o CUI del comprador desde este monto (Q). */
 export const CF_MAX_INVOICE_TOTAL = 2500;
 

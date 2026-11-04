@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { createClosureSchema, openPeriodQuerySchema } from "@shared/schemas/closures";
+import { paginationSchema } from "@shared/schemas/common";
 import { requireRole } from "../../middlewares/auth";
 import * as closuresService from "./closures.service";
 
@@ -13,8 +14,9 @@ closuresRouter.get("/open", async (req, res) => {
   res.json(await closuresService.getOpenPeriod(to));
 });
 
-closuresRouter.get("/", async (_req, res) => {
-  res.json(await closuresService.list());
+// Historial: ?page=1&pageSize=10
+closuresRouter.get("/", async (req, res) => {
+  res.json(await closuresService.list(paginationSchema.parse(req.query)));
 });
 
 closuresRouter.post("/", async (req, res) => {

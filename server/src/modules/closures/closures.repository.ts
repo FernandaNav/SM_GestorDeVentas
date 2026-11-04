@@ -46,9 +46,18 @@ const CLOSURE_COLUMNS = `c.id,
   c.transfer_amount AS "transferAmount", c.card_amount AS "cardAmount",
   c.closed_at AS "closedAt", u.role AS "closedBy"`;
 
-export async function findAll(db: Queryable): Promise<Closure[]> {
+export async function count(db: Queryable): Promise<number> {
+  const { rows } = await db.query<{ count: number }>(`SELECT count(*)::int AS count FROM closures`);
+  return rows[0].count;
+}
+
+/** Una página del historial, del cierre más reciente al más antiguo. */
+export async function findPage(db: Queryable, limit: number, offset: number): Promise<Closure[]> {
   const { rows } = await db.query<Closure>(
-    `SELECT ${CLOSURE_COLUMNS} FROM closures c JOIN users u ON u.id = c.closed_by ORDER BY c.period_end DESC`,
+    `SELECT ${CLOSURE_COLUMNS} FROM closures c JOIN users u ON u.id = c.closed_by
+     ORDER BY c.period_end DESC, c.id DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset],
   );
   return rows;
 }
