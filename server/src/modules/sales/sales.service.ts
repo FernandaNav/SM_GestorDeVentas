@@ -117,7 +117,8 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
 
     // Quien ya no trabaja aquí puede seguir en sus ventas pasadas; solo no se le puede asignar una nueva
     if (input.sellerId !== before.sellerId) await assertActiveSeller(db, input.sellerId);
-    const items = await resolveItems(db, input.items, user.role);
+    // Igual que con el vendedor: puede conservar una categoría que se desactivó después
+    const items = await resolveItems(db, input.items, user.role, new Set(before.items.map((item) => item.categoryId)));
 
     const client = input.isInvoiced && input.client ? input.client : null;
     const clientSnapshot = client
@@ -179,13 +180,13 @@ async function assertActiveSeller(db: pg.PoolClient, sellerId: number) {
   }
 }
 
-async function resolveItems(db: pg.PoolClient, items: NewSale["items"], role: Role) {
+async function resolveItems(db: pg.PoolClient, items: NewSale["items"], role: Role, keptCategoryIds = new Set<number>()) {
   const categoryIds = [...new Set(items.map((item) => item.categoryId))];
   const categories = new Map((await categoriesRepository.findByIds(db, categoryIds)).map((c) => [c.id, c]));
 
   return items.map((item) => {
     const category = categories.get(item.categoryId);
-    if (!category || !category.isActive) {
+    if (!category || (!category.isActive && !keptCategoryIds.has(category.id))) {
       throw new HttpError(400, `La categoría del artículo "${item.description}" no existe o está inactiva`);
     }
     const adminChoseRate = role === "Administrador" && item.commissionRate !== undefined;

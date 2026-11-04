@@ -47,6 +47,7 @@ export default function EditSaleModal({
   const [clientAddress, setClientAddress] = useState("");
   const [observations, setObservations] = useState("");
   const [items, setItems] = useState<EditableItem[]>([]);
+  const [originalCategories, setOriginalCategories] = useState<{ id: number; name: string }[]>([]);
 
   useEffect(() => {
     if (!open || !saleId) return;
@@ -75,6 +76,7 @@ export default function EditSaleModal({
           setClientAddress("");
         }
         setObservations(detail.observations || "");
+        setOriginalCategories(detail.items.map((it) => ({ id: it.categoryId, name: it.categoryName })));
         setItems(
           detail.items.map((it) => ({
             id: it.id,
@@ -127,6 +129,14 @@ export default function EditSaleModal({
     if (items.length <= 1) return;
     setItems((prev) => prev.filter((it) => it.id !== id));
   };
+
+  // Una categoría desactivada después de la venta se conserva como opción (marcada) para no cambiarla sin querer
+  const categoryOptions = [
+    ...categories,
+    ...originalCategories
+      .filter((original, index, all) => !categories.some((c) => c.id === original.id) && all.findIndex((o) => o.id === original.id) === index)
+      .map((original) => ({ id: original.id, name: `${original.name} (inactiva)` })),
+  ];
 
   const total = items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
   const isCF = taxId.trim().toUpperCase() === "CF";
@@ -326,7 +336,7 @@ export default function EditSaleModal({
                           value={it.categoryId}
                           onChange={(e) => updateItem(it.id, "categoryId", Number(e.target.value))}
                         >
-                          {categories.map((c) => (
+                          {categoryOptions.map((c) => (
                             <option key={c.id} value={c.id}>
                               {c.name}
                             </option>

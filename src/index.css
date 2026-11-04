@@ -758,3 +758,12 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 }
 
 
+
+/* ── categorías en Configuración ──────────────────────────────────────────── */
+.category-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.category-inactive .category-name strong { color: var(--color-muted); }
+.category-controls { display: flex; align-items: center; gap: 10px; flex: none; }
+.category-add { margin: 18px 0 4px; padding: 16px; border-radius: var(--radius-sm); background: var(--color-surface-soft); }
+.category-add .field-label { margin-bottom: 8px; }
+.category-add-row { display: grid; grid-template-columns: 1fr 170px auto; gap: 12px; align-items: start; }
+@media (max-width: 1240px) { .category-add-row { grid-template-columns: 1fr; } }
