@@ -7,6 +7,7 @@ import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
 import { Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
+import { issuesToErrors } from "@/lib/validation";
 
 type Props = {
   order: WorkshopOrderDetail;
@@ -61,7 +62,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
     });
     if (!parsed.success || !saleCheck.success) {
       const issues = [...(parsed.success ? [] : parsed.error.issues), ...(saleCheck.success ? [] : saleCheck.error.issues)];
-      setErrors(Object.fromEntries(issues.map((issue) => [issue.path.join("."), issue.message])));
+      setErrors(issuesToErrors(issues));
       return;
     }
     setSaving(true);

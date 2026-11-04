@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import type { PaymentMethod } from "@shared/constants";
-import type { SaleDetail, SaleItemInput, UpdateSaleInput } from "@shared/schemas/sales";
+import type { PaymentMethod, SaleItemOrigin } from "@shared/constants";
+import { updateSaleSchema, type SaleDetail, type UpdateSaleInput } from "@shared/schemas/sales";
+import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
+import MoneyInput from "@/components/MoneyInput";
 import Segmented from "@/components/Segmented";
-import { Button, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
+import { FormError, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
 
 type EditableItem = {
@@ -14,6 +16,8 @@ type EditableItem = {
   quantity: number;
   unitPrice: number;
   commissionRate: string;
+  /** Se conserva al guardar para no perder lo cobrado en taller. Un artículo nuevo no lo trae. */
+  origin?: SaleItemOrigin;
 };
 
 export default function EditSaleModal({
@@ -76,6 +80,7 @@ export default function EditSaleModal({
             quantity: it.quantity,
             unitPrice: it.unitPrice,
             commissionRate: it.commissionRate !== null && it.commissionRate !== undefined ? String(it.commissionRate) : "",
+            origin: it.origin,
           })),
         );
       })
@@ -132,17 +137,7 @@ export default function EditSaleModal({
       return;
     }
 
-    if (isInvoiced && isCF && total >= 2500) {
-      setError("Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.");
-      return;
-    }
-
-    if (isInvoiced && !clientName.trim()) {
-      setError("El nombre del cliente es obligatorio para ventas facturadas.");
-      return;
-    }
-
-    const saleItems: SaleItemInput[] = items.map((it) => {
+    const saleItems: UpdateSaleInput["items"] = items.map((it) => {
       const parsedComm = parseFloat(it.commissionRate);
       return {
         description: it.description.trim() || "Artículo",
@@ -150,6 +145,7 @@ export default function EditSaleModal({
         quantity: it.quantity,
         unitPrice: it.unitPrice,
         commissionRate: isNaN(parsedComm) ? null : parsedComm,
+        origin: it.origin,
       };
     });
 
@@ -157,7 +153,7 @@ export default function EditSaleModal({
       ? {
           taxIdType: isCF ? ("CF" as const) : taxIdType,
           taxId: isCF ? "CF" : taxId.trim().toUpperCase(),
-          name: clientName.trim() || (isCF ? "Consumidor Final" : "Cliente"),
+          name: clientName.trim() || (isCF ? "Consumidor Final" : ""),
           address: clientAddress.trim() || undefined,
         }
       : undefined;
@@ -171,14 +167,20 @@ export default function EditSaleModal({
       items: saleItems,
     };
 
+    // Mismas reglas que el servidor, para decir qué corregir antes de enviar (RNF 8.1)
+    const parsed = updateSaleSchema.safeParse(payload);
+    if (!parsed.success) {
+      setError(parsed.error.issues[0].message);
+      return;
+    }
+
     setSaving(true);
     try {
       await salesApi.update(saleId, payload);
       onSuccess();
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al actualizar la venta";
-      setError(msg);
+      setError(errorMessage(err, "Error al actualizar la venta"));
     } finally {
       setSaving(false);
     }
@@ -194,7 +196,10 @@ export default function EditSaleModal({
       onClose={onClose}
       onConfirm={handleSave}
       confirmLabel={saving ? "Guardando..." : "Guardar cambios"}
+      confirmDisabled={saving || loading}
     >
+      {/* Fuera del área con scroll para que se vea aunque se haya bajado hasta el final */}
+      {error && <FormError message={error} />}
       {loading ? (
         <div style={{ padding: "30px", textAlign: "center", color: "var(--color-muted)" }}>
           <Icon name="history" size="md" />
@@ -202,13 +207,6 @@ export default function EditSaleModal({
         </div>
       ) : (
         <div className="screen-stack" style={{ gap: "16px", maxHeight: "70vh", overflowY: "auto", paddingRight: "6px" }}>
-          {error && (
-            <div className="cf-warning" style={{ background: "var(--color-danger-soft, #fee2e2)", borderColor: "var(--color-danger, #ef4444)" }}>
-              <Icon name="bell" size="sm" />
-              <span>{error}</span>
-            </div>
-          )}
-
           <div className="form-grid two">
             <Select
               label="Vendedor"
@@ -334,11 +332,7 @@ export default function EditSaleModal({
                         />
                       </td>
                       <td>
-                        <input
-                          className="cell-input"
-                          value={it.unitPrice}
-                          onChange={(e) => updateItem(it.id, "unitPrice", Number(e.target.value.replace(/[^0-9.]/g, "")))}
-                        />
+                        <MoneyInput value={it.unitPrice} onChange={(price) => updateItem(it.id, "unitPrice", price)} ariaLabel="Precio" />
                       </td>
                       <td>
                         <input

@@ -9,6 +9,7 @@ import { DatePicker, endOfMonth, fmtDay, MonthPicker, startOfDay, startOfMonth }
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { formatQuetzales } from "@/lib/format";
+import { issuesToErrors } from "@/lib/validation";
 
 /** Date → "AAAA-MM-DD" con la fecha local (no UTC) */
 const toIsoDate = (date: Date) =>
@@ -66,7 +67,7 @@ export default function ExpensesPage() {
       description,
     });
     if (!parsed.success) {
-      setErrors(Object.fromEntries(parsed.error.issues.map((issue) => [issue.path.join("."), issue.message])));
+      setErrors(issuesToErrors(parsed.error.issues));
       return;
     }
     setSaving(true);

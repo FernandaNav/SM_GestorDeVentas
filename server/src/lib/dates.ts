@@ -3,6 +3,9 @@ const GUATEMALA_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guat
 /** Fecha de hoy en Guatemala como AAAA-MM-DD, según el reloj del servidor. */
 export const todayInGuatemala = () => GUATEMALA_DAY.format(new Date());
 
+/** Día de Guatemala (AAAA-MM-DD) al que pertenece un momento guardado en la base. */
+export const businessDayOf = (moment: Date | string) => GUATEMALA_DAY.format(new Date(moment));
+
 /**
  * Condición SQL "la columna cae entre dos días de Guatemala (ambos incluidos)".
  * Se escribe como rango sobre la columna (y no con business_date(columna)) para

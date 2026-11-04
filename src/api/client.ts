@@ -20,6 +20,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Texto para mostrar: el primer campo inválido si la API lo indicó, si no su mensaje general. */
+export function errorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  return Object.values(error.fields)[0] ?? error.message;
+}
+
 let onUnauthorized: () => void = () => {};
 /** AuthContext lo usa para cerrar la sesión cuando la API responde 401. */
 export const setUnauthorizedHandler = (handler: () => void) => {

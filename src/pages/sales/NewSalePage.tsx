@@ -1,27 +1,21 @@
 import { useEffect, useState } from "react";
 import type { PaymentMethod, Role } from "@shared/constants";
-import type { ClientLookup, CreateSaleInput, SaleDetail, SaleItemInput } from "@shared/schemas/sales";
+import { createSaleSchema, type ClientLookup, type CreateSaleInput, type SaleDetail, type SaleItemInput } from "@shared/schemas/sales";
+import { ApiError, errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
-import { Badge, Button, Card, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
+import { Badge, Button, Card, FormError, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useCurrentDate } from "@/hooks/useCurrentDate";
 import { capitalize, formatQuetzales, SALE_DATE_FORMAT, SALE_TIME_FORMAT } from "@/lib/format";
+import { issuesToErrors } from "@/lib/validation";
 import InvoicePreview from "@/pages/sales/InvoicePreview";
 import ItemsTable from "@/pages/sales/ItemsTable";
 import SaleSuccess from "@/pages/sales/SaleSuccess";
-import type { SaleItem, SaleRecord } from "@/temporal/localStore";
+import type { SaleItem } from "@/temporal/localStore";
 
-export default function NewSale({
-  role,
-  onHistory,
-  onAddSale,
-}: {
-  role: Role;
-  onHistory: () => void;
-  onAddSale?: (sale: SaleRecord) => void;
-}) {
+export default function NewSale({ role, onHistory }: { role: Role; onHistory: () => void }) {
   const { sellers, sellerNames, categories } = useCatalog();
   const isAdmin = role === "Administrador";
   const now = useCurrentDate();
@@ -44,6 +38,20 @@ export default function NewSale({
   const [createdSale, setCreatedSale] = useState<SaleDetail | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const clearErrors = () => {
+    setFormError(null);
+    setFieldErrors({});
+  };
+
+  /** Envuelve un setter: cuando la persona corrige el formulario desaparecen los avisos anteriores. */
+  const onEdit =
+    <Value,>(setValue: (value: Value) => void) =>
+    (value: Value) => {
+      clearErrors();
+      setValue(value);
+    };
 
   // Contador y alerta de facturas del mes (punto 5)
   const { data: invoiceUsage, refetch: refetchInvoiceUsage } = useApiQuery(
@@ -109,11 +117,12 @@ export default function NewSale({
     setObservations("");
     setIsConfirmed(false);
     setCreatedSale(null);
-    setFormError(null);
+    clearErrors();
     refetchInvoiceUsage();
   };
 
   const handleFillCF = () => {
+    clearErrors();
     setClientId("CF");
     setClientName("Consumidor Final");
     setClientAddress("Ciudad");
@@ -126,28 +135,12 @@ export default function NewSale({
       }, 0)
     : 0;
 
-  const handleConfirmSale = async () => {
-    setFormError(null);
+  const selectedSeller = sellers.find((s) => s.fullName === seller) ?? sellers[0];
+
+  /** Arma la venta con lo escrito en el formulario. */
+  const buildPayload = (sellerId: number): CreateSaleInput => {
     const validItems = items.filter((i) => i.desc.trim() !== "" || i.price > 0);
     const resolvedItems = validItems.length > 0 ? validItems : items;
-
-    // Obtener el vendedor
-    const sellerObj = sellers.find((s) => s.fullName === seller) || sellers[0];
-    if (!sellerObj) {
-      setFormError("No hay vendedores activos registrados en el sistema.");
-      return;
-    }
-
-    // Validar CF >= 2500
-    if (isInvoiced && isCF && total >= 2500) {
-      setFormError("Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.");
-      return;
-    }
-
-    if (isInvoiced && !clientName.trim()) {
-      setFormError("El nombre o razón social del cliente es obligatorio para facturar.");
-      return;
-    }
 
     const saleItems: SaleItemInput[] = resolvedItems.map((i) => {
       const catObj = categories.find((c) => c.name === i.cat) || categories[0];
@@ -166,55 +159,52 @@ export default function NewSale({
       ? {
           taxIdType: isCF ? ("CF" as const) : idType,
           taxId: isCF ? "CF" : clientId.trim().toUpperCase(),
-          name: clientName.trim() || (isCF ? "Consumidor Final" : "Cliente"),
+          name: clientName.trim() || (isCF ? "Consumidor Final" : ""),
           address: clientAddress.trim() || undefined,
         }
       : undefined;
 
-    const payload: CreateSaleInput = {
-      sellerId: sellerObj.id,
+    return {
+      sellerId,
       paymentMethod: paymentMethod as PaymentMethod,
       isInvoiced,
       client: clientPayload,
       observations: observations.trim() || undefined,
       items: saleItems,
     };
+  };
 
+  // Mismas reglas que el servidor: lo que falte se avisa antes de pedir la confirmación (RNF 8.1)
+  const handleRequestConfirm = () => {
+    clearErrors();
+    if (!selectedSeller) {
+      setFormError("No hay vendedores activos registrados en el sistema.");
+      return;
+    }
+
+    const parsed = createSaleSchema.safeParse(buildPayload(selectedSeller.id));
+    if (!parsed.success) {
+      setFieldErrors(issuesToErrors(parsed.error.issues));
+      setFormError(parsed.error.issues[0].message);
+      return;
+    }
+    setIsConfirmModalOpen(true);
+  };
+
+  const handleConfirmSale = async () => {
+    if (!selectedSeller) return;
+
+    setFormError(null);
     setIsSubmitting(true);
     try {
-      const created = await salesApi.create(payload);
+      const created = await salesApi.create(buildPayload(selectedSeller.id));
       setCreatedSale(created);
-
-      // Si existe el callback local temporal, actualizarlo también
-      if (onAddSale) {
-        const productSummary = resolvedItems.map((i) => i.desc.trim() || "Artículo").join(", ");
-        const primaryCategory = resolvedItems[0]?.cat || "Accesorio";
-        onAddSale({
-          id: created.id,
-          time: saleTimestamp,
-          timestamp: Date.now(),
-          product: productSummary,
-          category: primaryCategory,
-          seller,
-          paymentMethod,
-          amount: total,
-          commission: totalCommission > 0 ? formatQuetzales(totalCommission) : "Pendiente",
-          invoiced: isInvoiced,
-          locked: false,
-          clientName: clientPayload?.name,
-          clientId: clientPayload?.taxId,
-          clientAddress: clientPayload?.address,
-          observations: observations.trim(),
-          items: resolvedItems,
-        });
-      }
-
       setIsConfirmModalOpen(false);
       setIsConfirmed(true);
       refetchInvoiceUsage();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error al registrar la venta en el servidor";
-      setFormError(message);
+      if (err instanceof ApiError) setFieldErrors(err.fields);
+      setFormError(errorMessage(err, "Error al registrar la venta en el servidor"));
     } finally {
       setIsSubmitting(false);
     }
@@ -251,13 +241,6 @@ export default function NewSale({
   return (
     <div className="sale-layout">
       <div className="sale-main screen-stack">
-        {formError && (
-          <div className="cf-warning" style={{ background: "var(--color-danger-soft, #fee2e2)", borderColor: "var(--color-danger, #ef4444)" }}>
-            <Icon name="bell" size="sm" />
-            <span>{formError}</span>
-          </div>
-        )}
-
         {/* Alerta de límite de facturas del mes (punto 5) */}
         {invoiceUsage?.isAlert && isInvoiced && (
           <div className="cf-warning" role="alert" style={{ background: "rgba(245, 158, 11, 0.15)", borderColor: "var(--color-warning, #f59e0b)" }}>
@@ -305,7 +288,7 @@ export default function NewSale({
               <small>Productos o servicios incluidos en esta venta</small>
             </div>
           </div>
-          <ItemsTable items={items} setItems={setItems} isAdmin={isAdmin} />
+          <ItemsTable items={items} setItems={onEdit(setItems)} isAdmin={isAdmin} />
         </Card>
 
         <Card className="form-card">
@@ -318,7 +301,7 @@ export default function NewSale({
                   : "Emisión de documento de venta"}
               </div>
             </div>
-            <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="¿Facturar esta venta?" />
+            <Toggle checked={isInvoiced} onChange={onEdit(setIsInvoiced)} label="¿Facturar esta venta?" />
           </div>
 
           {isInvoiced && (
@@ -336,13 +319,13 @@ export default function NewSale({
                 <div className="id-type-seg">
                   <UnstyledButton
                     className={idType === "NIT" ? "id-type-btn selected" : "id-type-btn"}
-                    onClick={() => setIdType("NIT")}
+                    onClick={() => onEdit(setIdType)("NIT")}
                   >
                     NIT
                   </UnstyledButton>
                   <UnstyledButton
                     className={idType === "CUI" ? "id-type-btn selected" : "id-type-btn"}
-                    onClick={() => setIdType("CUI")}
+                    onClick={() => onEdit(setIdType)("CUI")}
                   >
                     CUI
                   </UnstyledButton>
@@ -350,8 +333,9 @@ export default function NewSale({
                 <TextInput
                   placeholder={idType === "NIT" ? "Ej. 5489632-1" : "Ej. 2345 12345 0101"}
                   value={clientId}
-                  onChange={setClientId}
+                  onChange={onEdit(setClientId)}
                   icon="search"
+                  error={fieldErrors["client.taxId"]}
                 />
                 <button type="button" className="cf-btn" onClick={handleFillCF}>
                   Consumidor Final (CF)
@@ -384,15 +368,16 @@ export default function NewSale({
                   <TextInput
                     label="Nombre o razón social"
                     value={clientName}
-                    onChange={setClientName}
+                    onChange={onEdit(setClientName)}
                     placeholder="Nombre del cliente o empresa"
+                    error={fieldErrors["client.name"]}
                   />
                 </div>
                 <div className="span-two">
                   <TextInput
                     label="Dirección fiscal"
                     value={clientAddress}
-                    onChange={setClientAddress}
+                    onChange={onEdit(setClientAddress)}
                     placeholder="Dirección fiscal para factura"
                   />
                 </div>
@@ -450,15 +435,9 @@ export default function NewSale({
             <strong>{formatQuetzales(total)}</strong>
           </div>
 
-          <Button
-            className="full-button"
-            icon="check"
-            onClick={() => {
-              setFormError(null);
-              setIsConfirmModalOpen(true);
-            }}
-            disabled={total <= 0 || isSubmitting}
-          >
+          {formError && !isConfirmModalOpen && <FormError message={formError} />}
+
+          <Button className="full-button" icon="check" onClick={handleRequestConfirm} disabled={total <= 0 || isSubmitting}>
             {isSubmitting ? "Registrando..." : "Confirmar venta"}
           </Button>
 
@@ -474,7 +453,9 @@ export default function NewSale({
         onClose={() => setIsConfirmModalOpen(false)}
         onConfirm={handleConfirmSale}
         confirmLabel={isSubmitting ? "Guardando..." : "Registrar venta"}
+        confirmDisabled={isSubmitting}
       >
+        {formError && <FormError message={formError} />}
         <div className="confirm-box">
           <div>
             <span>Total</span>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   CF_MAX_INVOICE_TOTAL,
   PAYMENT_METHODS,
+  SALE_ITEM_ORIGINS,
   TAX_ID_TYPES,
   type PaymentMethod,
   type SaleItemOrigin,
@@ -50,32 +51,46 @@ export const saleClientSchema = z
   });
 export type SaleClientInput = z.infer<typeof saleClientSchema>;
 
+const saleFields = {
+  sellerId: z.number().int().positive("Elige el vendedor"),
+  paymentMethod: z.enum(PAYMENT_METHODS, { message: "Elige el método de pago" }),
+  isInvoiced: z.boolean(),
+  client: saleClientSchema.optional(),
+  observations: z.string().trim().max(500).optional(),
+};
+
+function checkInvoiceClient(
+  sale: { isInvoiced: boolean; client?: SaleClientInput; items: Pick<SaleItemInput, "quantity" | "unitPrice">[] },
+  ctx: z.RefinementCtx,
+) {
+  if (!sale.isInvoiced) return;
+  if (!sale.client) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["client"], message: "Los datos del cliente son obligatorios para facturar" });
+    return;
+  }
+  if (sale.client.taxIdType === "CF" && calculateTotal(sale.items) >= CF_MAX_INVOICE_TOTAL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["client", "taxId"],
+      message: `Desde Q${CF_MAX_INVOICE_TOTAL.toLocaleString("es-GT")} la SAT exige NIT o CUI del comprador`,
+    });
+  }
+}
+
+const saleItemsOf = <Item extends z.ZodTypeAny>(item: Item) => z.array(item).min(1, "Agrega al menos un artículo").max(50);
+
 export const createSaleSchema = z
-  .object({
-    sellerId: z.number().int().positive("Elige el vendedor"),
-    paymentMethod: z.enum(PAYMENT_METHODS, { message: "Elige el método de pago" }),
-    isInvoiced: z.boolean(),
-    client: saleClientSchema.optional(),
-    observations: z.string().trim().max(500).optional(),
-    items: z.array(saleItemInputSchema).min(1, "Agrega al menos un artículo").max(50),
-  })
-  .superRefine((sale, ctx) => {
-    if (!sale.isInvoiced) return;
-    if (!sale.client) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["client"], message: "Los datos del cliente son obligatorios para facturar" });
-      return;
-    }
-    if (sale.client.taxIdType === "CF" && calculateTotal(sale.items) >= CF_MAX_INVOICE_TOTAL) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["client", "taxId"],
-        message: `Desde Q${CF_MAX_INVOICE_TOTAL.toLocaleString("es-GT")} la SAT exige NIT o CUI del comprador`,
-      });
-    }
-  });
+  .object({ ...saleFields, items: saleItemsOf(saleItemInputSchema) })
+  .superRefine(checkInvoiceClient);
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
-export const updateSaleSchema = createSaleSchema;
-export type UpdateSaleInput = CreateSaleInput;
+
+/** Al editar, cada artículo conserva su origen para no perder lo que se cobró en taller. */
+const editedSaleItemSchema = saleItemInputSchema.extend({ origin: z.enum(SALE_ITEM_ORIGINS).optional() });
+
+export const updateSaleSchema = z
+  .object({ ...saleFields, items: saleItemsOf(editedSaleItemSchema) })
+  .superRefine(checkInvoiceClient);
+export type UpdateSaleInput = z.infer<typeof updateSaleSchema>;
 
 export const saleFiltersSchema = z.object({
   from: z.string().date("Fecha inválida (usa AAAA-MM-DD)").optional(),

@@ -131,6 +131,15 @@ export async function markDelivered(db: Queryable, id: number, saleId: number, f
   );
 }
 
+/** Actualiza lo cobrado en la orden que generó esta venta. Devuelve su id, o undefined si la venta no viene de taller. */
+export async function updateFinalCostBySale(db: Queryable, saleId: number, finalCost: number): Promise<number | undefined> {
+  const { rows } = await db.query<{ id: number }>(`UPDATE workshop_orders SET final_cost = $2 WHERE sale_id = $1 RETURNING id`, [
+    saleId,
+    finalCost,
+  ]);
+  return rows[0]?.id;
+}
+
 export async function insertEvent(db: Queryable, orderId: number, description: string, createdBy: number) {
   await db.query(`INSERT INTO workshop_order_events (order_id, description, created_by) VALUES ($1, $2, $3)`, [
     orderId,

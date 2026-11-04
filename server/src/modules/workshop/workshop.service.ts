@@ -14,14 +14,13 @@ import {
 } from "@shared/schemas/workshop";
 import { pool, withTransaction, type Queryable } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
+import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
 import * as categoriesRepository from "../categories/categories.repository";
 import * as salesService from "../sales/sales.service";
 import * as staffRepository from "../staff/staff.repository";
 import * as workshopRepository from "./workshop.repository";
-
-const formatMoney = (amount: number) => "Q" + amount.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function list(filters: WorkshopFilters): Promise<WorkshopOrderSummary[]> {
   return workshopRepository.findSummaries(pool, filters);

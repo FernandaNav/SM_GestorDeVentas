@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { PaymentMethod, Role } from "@shared/constants";
 import type { SaleDetail, SaleFilters, SaleSummary } from "@shared/schemas/sales";
+import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
 import { type DateRange, DateRangePicker, presetRange } from "@/components/dates";
@@ -129,13 +130,13 @@ export default function SalesHistory({
       await salesApi.delete(deletingSaleId);
       if (onDeleteSale) onDeleteSale(deletingSaleId);
       setFeedbackMessage(`Venta #${deletingSaleId} eliminada correctamente.`);
-      setDeletingSaleId(null);
       await refetch();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al eliminar la venta";
-      setFeedbackMessage(msg);
+      setFeedbackMessage(errorMessage(err, "Error al eliminar la venta"));
     } finally {
       setIsDeleting(false);
+      // Se cierra también si falló: el aviso se muestra en la página, detrás del modal
+      setDeletingSaleId(null);
     }
   };
 
@@ -409,6 +410,7 @@ export default function SalesHistory({
         onClose={() => setDeletingSaleId(null)}
         onConfirm={handleConfirmDelete}
         confirmLabel={isDeleting ? "Eliminando..." : "Sí, eliminar"}
+        confirmDisabled={isDeleting}
       >
 
         <p style={{ margin: "0 0 12px 0", fontSize: "14px" }}>

@@ -10,6 +10,7 @@ import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
 import { Badge, Button, Card, Icon } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
+import { issuesToErrors } from "@/lib/validation";
 
 const KIND_LABELS: Record<WorkshopItemKind, string> = { servicio: "Servicio", repuesto: "Repuesto" };
 // Categoría sugerida para cada tipo; se puede cambiar antes de agregar
@@ -53,7 +54,7 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
       unitPrice: unitPrice.trim() ? Number(unitPrice.replace(/[^0-9.]/g, "")) : undefined,
     });
     if (!parsed.success) {
-      setErrors(Object.fromEntries(parsed.error.issues.map((issue) => [issue.path.join("."), issue.message])));
+      setErrors(issuesToErrors(parsed.error.issues));
       return;
     }
     setBusy(true);

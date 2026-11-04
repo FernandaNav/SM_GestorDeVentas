@@ -329,6 +329,7 @@ tr:last-child td { border-bottom: 0; }
 .cf-btn { border: 1px solid var(--color-line); background: var(--color-surface); border-radius: var(--radius-sm); min-height: 42px; padding: 0 12px; font: inherit; font-size: 11px; font-weight: 600; color: var(--color-text); cursor: pointer; white-space: nowrap; flex: none; transition: .15s; }
 .cf-btn:hover { background: var(--color-surface-soft); border-color: var(--color-primary); color: var(--color-primary); }
 .cf-warning { display: flex; gap: 9px; align-items: flex-start; background: var(--color-warning-soft); color: var(--color-warning); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 11px; margin-bottom: 14px; }
+.form-error { background: var(--color-danger-soft); color: var(--color-danger); }
 
 /* ── date readonly ────────────────────────────────────────────────────────── */
 .readonly-datetime { display: flex; flex-direction: column; gap: 3px; min-height: 42px; justify-content: center; padding: 0 2px; }

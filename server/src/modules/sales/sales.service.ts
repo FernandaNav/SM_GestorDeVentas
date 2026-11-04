@@ -5,11 +5,13 @@ import type { DateRange } from "@shared/schemas/common";
 import { calculateTotal, type CreateSaleInput, type SaleDetail, type SaleItemInput, type SaleSummary } from "@shared/schemas/sales";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
-import { todayInGuatemala } from "../../lib/dates";
+import { businessDayOf, todayInGuatemala } from "../../lib/dates";
+import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
 import * as categoriesRepository from "../categories/categories.repository";
 import * as staffRepository from "../staff/staff.repository";
+import * as workshopRepository from "../workshop/workshop.repository";
 import * as salesRepository from "./sales.repository";
 
 /** Venta con artículos que pueden venir del taller (los arma el módulo Taller al cobrar). */
@@ -70,6 +72,8 @@ export async function listSales(filters: import("@shared/schemas/sales").SaleFil
 export async function getSale(id: number, role: Role): Promise<SaleDetail> {
   const sale = await salesRepository.findDetail(pool, id);
   if (!sale) throw notFound("Venta");
+  // Igual que en la lista: el empleado solo consulta las ventas de hoy (RNF 1.3)
+  if (role !== "Administrador" && businessDayOf(sale.soldAt) !== todayInGuatemala()) throw notFound("Venta");
   return forRole(sale, role);
 }
 
@@ -124,6 +128,7 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
 
     const after = (await salesRepository.findDetail(db, id))!;
     await recordAudit(db, req, { action: "editar", entity: "sales", entityId: id, before, after });
+    await syncWorkshopOrderTotal(db, req, before, after);
     return forRole(after, user.role);
   });
 }
@@ -166,6 +171,27 @@ async function resolveItems(db: pg.PoolClient, items: NewSale["items"], role: Ro
       commissionRate: adminChoseRate ? (item.commissionRate ?? null) : category.defaultCommissionRate,
       origin: item.origin ?? "venta",
     };
+  });
+}
+
+/** Si la venta editada salió de una orden de taller, la orden debe mostrar lo que realmente se cobró. */
+async function syncWorkshopOrderTotal(db: pg.PoolClient, req: Request, before: SaleDetail, after: SaleDetail) {
+  if (after.total === before.total) return;
+  const orderId = await workshopRepository.updateFinalCostBySale(db, after.id, after.total);
+  if (!orderId) return;
+
+  await workshopRepository.insertEvent(
+    db,
+    orderId,
+    `Venta #${after.id} editada: el total pasó de ${formatMoney(before.total)} a ${formatMoney(after.total)}`,
+    currentUser(req).id,
+  );
+  await recordAudit(db, req, {
+    action: "editar",
+    entity: "workshop_orders",
+    entityId: orderId,
+    before: { finalCost: before.total },
+    after: { finalCost: after.total },
   });
 }
 
