@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useCatalog } from "@/catalog/CatalogContext";
 import MoneyInput from "@/components/MoneyInput";
 import { Icon } from "@/components/ui";
@@ -23,6 +24,28 @@ export default function ItemsTable({
   isAdmin: boolean;
 }) {
   const { categoryNames, defaultCommissions } = useCatalog();
+  // Accesorio es lo más común en mostrador; si se desactivó, la primera categoría activa
+  const defaultCategory = categoryNames.includes("Accesorio") ? "Accesorio" : (categoryNames[0] ?? "");
+  const blankItem = (): SaleItem => ({
+    id: Date.now(),
+    desc: "",
+    cat: defaultCategory,
+    qty: 1,
+    price: 0,
+    commission: defaultCommissions[defaultCategory] ?? "",
+  });
+
+  // Si una categoría del formulario ya no está activa (la desactivaron en Configuración),
+  // se cambia a la de por defecto con su comisión, para no enviar una que el servidor rechazaría.
+  useEffect(() => {
+    if (categoryNames.length === 0) return;
+    if (items.every((item) => categoryNames.includes(item.cat))) return;
+    setItems(
+      items.map((item) =>
+        categoryNames.includes(item.cat) ? item : { ...item, cat: defaultCategory, commission: defaultCommissions[defaultCategory] ?? "" },
+      ),
+    );
+  }, [categoryNames, items, setItems, defaultCategory, defaultCommissions]);
   const updateItem = (id: number, field: keyof SaleItem, val: string | number) => {
     setItems(
       items.map((item) => {
@@ -35,15 +58,12 @@ export default function ItemsTable({
   };
 
   const addItem = () => {
-    setItems([
-      ...items,
-      { id: Date.now(), desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" },
-    ]);
+    setItems([...items, blankItem()]);
   };
 
   const removeItem = (id: number) => {
     if (items.length <= 1) {
-      setItems([{ id: Date.now(), desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" }]);
+      setItems([blankItem()]);
       return;
     }
     setItems(items.filter((i) => i.id !== id));

@@ -747,6 +747,104 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("categorías en Configuración", () => {
+    const listNames = async (who: typeof admin) => ((await who("GET", "/categories")).data as any[]).map((c) => c.name);
+    let tiresId: number;
+    let saleWithTires: any;
+
+    it("el administrador agrega una categoría y queda antes de Otro", async () => {
+      const { status, data } = await admin("POST", "/settings/categories", { name: "  Llantas   y  rines ", defaultCommissionRate: 3 });
+      assert.equal(status, 201);
+      assert.equal(data.name, "Llantas y rines");
+      assert.equal(data.defaultCommissionRate, 3);
+      assert.equal(data.isActive, true);
+      tiresId = data.id;
+
+      const names = await listNames(employee);
+      assert.ok(names.includes("Llantas y rines"));
+      assert.ok(names.indexOf("Llantas y rines") < names.indexOf("Otro"), "Otro sigue siendo la última");
+    });
+
+    it("una venta con la categoría nueva toma su comisión", async () => {
+      const { status, data } = await employee("POST", "/sales", {
+        ...counterSale(),
+        items: [{ description: "Llanta Pirelli", categoryId: tiresId, quantity: 2, unitPrice: 400 }],
+      });
+      assert.equal(status, 201);
+      const { data: sale } = await admin("GET", `/sales/${data.id}`);
+      assert.equal(sale.items[0].commissionRate, 3);
+      assert.equal(sale.items[0].commissionAmount, 24);
+      saleWithTires = sale;
+    });
+
+    it("no permite nombres repetidos sin importar mayúsculas, ni datos inválidos", async () => {
+      const duplicate = await admin("POST", "/settings/categories", { name: "LLANTAS Y RINES", defaultCommissionRate: null });
+      assert.equal(duplicate.status, 409);
+      assert.match(duplicate.data.error, /Ya existe la categoría/);
+
+      const empty = await admin("POST", "/settings/categories", { name: " ", defaultCommissionRate: null });
+      assert.equal(empty.status, 400);
+      assert.ok(empty.data.fields.name);
+
+      const tooHigh = await admin("POST", "/settings/categories", { name: "Cascos premium", defaultCommissionRate: 101 });
+      assert.equal(tooHigh.status, 400);
+      assert.ok(tooHigh.data.fields.defaultCommissionRate);
+    });
+
+    it("solo el administrador agrega o desactiva categorías", async () => {
+      assert.equal((await employee("POST", "/settings/categories", { name: "Del empleado", defaultCommissionRate: null })).status, 403);
+      assert.equal((await employee("PATCH", `/settings/categories/${tiresId}/active`, { isActive: false })).status, 403);
+    });
+
+    it("al desactivarla deja de ofrecerse y no se puede usar en ventas nuevas", async () => {
+      const { status, data } = await admin("PATCH", `/settings/categories/${tiresId}/active`, { isActive: false });
+      assert.equal(status, 200);
+      assert.equal(data.isActive, false);
+
+      assert.ok(!(await listNames(employee)).includes("Llantas y rines"), "el empleado ya no la ve");
+      const adminList = (await admin("GET", "/categories")).data as any[];
+      assert.equal(adminList.find((c) => c.id === tiresId).isActive, false, "el administrador la sigue viendo como inactiva");
+
+      const newSale = await admin("POST", "/sales", {
+        ...counterSale(),
+        items: [{ description: "Rin", categoryId: tiresId, quantity: 1, unitPrice: 100 }],
+      });
+      assert.equal(newSale.status, 400);
+    });
+
+    it("una venta pasada con la categoría desactivada se sigue pudiendo editar", async () => {
+      const { status, data } = await admin("PUT", `/sales/${saleWithTires.id}`, editPayload(saleWithTires, 450));
+      assert.equal(status, 200);
+      assert.equal(data.items[0].categoryId, tiresId);
+      assert.equal(data.items[0].unitPrice, 450);
+    });
+
+    it("avisa que existe aunque esté desactivada, y se puede volver a activar", async () => {
+      const duplicate = await admin("POST", "/settings/categories", { name: "llantas y rines", defaultCommissionRate: null });
+      assert.equal(duplicate.status, 409);
+      assert.match(duplicate.data.error, /desactivada/);
+
+      assert.equal((await admin("PATCH", `/settings/categories/${tiresId}/active`, { isActive: true })).status, 200);
+      assert.ok((await listNames(employee)).includes("Llantas y rines"));
+    });
+
+    it("no se desactiva si una orden de taller sin cobrar la usa", async () => {
+      const { data: category } = await admin("POST", "/settings/categories", { name: "Lubricantes", defaultCommissionRate: 2 });
+      const { data: order } = await admin("POST", "/workshop", { clientName: "Categoría en uso", motorcycle: "Moto", workDescription: "Cambio de aceite", mechanicId });
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Aceite", categoryId: category.id, quantity: 1, unitPrice: 60 });
+
+      const blocked = await admin("PATCH", `/settings/categories/${category.id}/active`, { isActive: false });
+      assert.equal(blocked.status, 409);
+      assert.match(blocked.data.error, /orden de taller sin cobrar/);
+
+      // Cobrada la orden, ya se puede desactivar
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "En reparación" });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
+      assert.equal((await admin("POST", `/workshop/${order.id}/checkout`, { sellerId, paymentMethod: "Efectivo", isInvoiced: false })).status, 201);
+      assert.equal((await admin("PATCH", `/settings/categories/${category.id}/active`, { isActive: false })).status, 200);
+    });
+  });
+
   // Va al final: el cierre deja en solo lectura todas las ventas creadas hasta aquí
   it("una venta cerrada no se edita ni se elimina, su orden no cambia y el historial la marca", async () => {
     const { orderId, sale } = await chargedWorkshopOrder();

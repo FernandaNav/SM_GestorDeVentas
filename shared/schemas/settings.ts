@@ -47,3 +47,16 @@ export const categoryCommissionSchema = z.object({
     .nullable(),
 });
 export type CategoryCommissionInput = z.infer<typeof categoryCommissionSchema>;
+/** Categoría nueva. El nombre no se repite (sin importar mayúsculas) y la comisión es opcional. */
+export const categoryCreateSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .transform((value) => value.replace(/\s+/g, " "))
+    .pipe(z.string().min(2, "Escribe el nombre de la categoría").max(50, "Máximo 50 caracteres")),
+  defaultCommissionRate: categoryCommissionSchema.shape.defaultCommissionRate,
+});
+export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>;
+
+/** Las categorías no se eliminan (las ventas pasadas las usan): se desactivan. */
+export const categoryActiveSchema = z.object({ isActive: z.boolean() });
