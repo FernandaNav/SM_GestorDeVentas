@@ -6,10 +6,11 @@ import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Pagination from "@/components/Pagination";
 import { type DateRange, DateRangePicker, presetRange } from "@/components/dates";
-import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextInput } from "@/components/ui";
+import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
+import DeletedSalesPanel from "@/pages/sales/DeletedSalesPanel";
 import EditSaleModal from "@/pages/sales/EditSaleModal";
 import InvoicePreview from "@/pages/sales/InvoicePreview";
 import type { SaleRecord } from "@/temporal/localStore";
@@ -48,6 +49,9 @@ export default function SalesHistory({
   const [loadingInvoiceId, setLoadingInvoiceId] = useState<number | null>(null);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
   const [deletingSaleId, setDeletingSaleId] = useState<number | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  // Historial de ventas eliminadas (solo Administrador)
+  const [showDeleted, setShowDeleted] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
@@ -116,10 +120,10 @@ export default function SalesHistory({
     loading,
     error,
     refetch,
-  } = useApiQuery(`sales:list:${queryKey}:${page}`, () => salesApi.list(activeFilters, page, PAGE_SIZE));
+  } = useApiQuery(`sales:list:${queryKey}:${page}`, () => salesApi.list(activeFilters, page, PAGE_SIZE), { poll: !showDeleted });
 
   // Contador de facturas del mes (punto 5)
-  const { data: invoiceUsage } = useApiQuery("sales:invoice-usage", salesApi.invoiceUsage);
+  const { data: invoiceUsage } = useApiQuery("sales:invoice-usage", salesApi.invoiceUsage, { poll: !showDeleted });
 
   const displayedSales: SaleSummary[] = salesPage?.items ?? [];
 
@@ -141,7 +145,7 @@ export default function SalesHistory({
     if (!deletingSaleId) return;
     setIsDeleting(true);
     try {
-      await salesApi.delete(deletingSaleId);
+      await salesApi.delete(deletingSaleId, deleteReason.trim() || undefined);
       if (onDeleteSale) onDeleteSale(deletingSaleId);
       setFeedbackMessage(`Venta #${deletingSaleId} eliminada correctamente.`);
       await refetch();
@@ -151,8 +155,13 @@ export default function SalesHistory({
       setIsDeleting(false);
       // Se cierra también si falló: el aviso se muestra en la página, detrás del modal
       setDeletingSaleId(null);
+      setDeleteReason("");
     }
   };
+
+  if (isAdmin && showDeleted) {
+    return <DeletedSalesPanel onBack={() => setShowDeleted(false)} />;
+  }
 
   // Si está viendo una factura
   if (selectedInvoiceSale) {
@@ -191,6 +200,12 @@ export default function SalesHistory({
               : "Ventas registradas durante el turno de hoy."}
           </div>
         </div>
+        <div className="row-actions" style={{ alignItems: "center" }}>
+        {isAdmin && (
+          <Button variant="secondary" icon="trash" onClick={() => setShowDeleted(true)}>
+            Ventas eliminadas
+          </Button>
+        )}
         {invoiceUsage && (
           <div
             style={{
@@ -213,6 +228,7 @@ export default function SalesHistory({
             </Badge>
           </div>
         )}
+        </div>
       </div>
 
       {feedbackMessage && (
@@ -429,7 +445,10 @@ export default function SalesHistory({
       <Modal
         open={deletingSaleId !== null}
         title="Eliminar venta"
-        onClose={() => setDeletingSaleId(null)}
+        onClose={() => {
+          setDeletingSaleId(null);
+          setDeleteReason("");
+        }}
         onConfirm={handleConfirmDelete}
         confirmLabel={isDeleting ? "Eliminando..." : "Sí, eliminar"}
         confirmDisabled={isDeleting}
@@ -438,6 +457,14 @@ export default function SalesHistory({
         <p style={{ margin: "0 0 12px 0", fontSize: "14px" }}>
           ¿Estás seguro de que deseas eliminar la venta <strong>#{deletingSaleId}</strong>?
         </p>
+        <div style={{ marginBottom: "12px" }}>
+          <TextArea
+            label="Motivo (opcional)"
+            placeholder="Ej. Se registró dos veces, el cliente canceló la compra..."
+            value={deleteReason}
+            onChange={setDeleteReason}
+          />
+        </div>
         <div style={{ fontSize: "12px", color: "var(--color-muted)", background: "var(--color-surface-soft)", padding: "10px", borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", gap: "6px" }}>
           <Icon name="lock" size="sm" />
           <span>

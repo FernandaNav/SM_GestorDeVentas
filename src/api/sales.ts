@@ -2,6 +2,8 @@ import type { Page } from "@shared/schemas/common";
 import type {
   ClientLookup,
   CreateSaleInput,
+  DeletedSale,
+  DeletedSaleFilters,
   InvoiceUsage,
   SaleDetail,
   SaleFilters,
@@ -16,7 +18,10 @@ export const salesApi = {
   get: (id: number) => api.get<SaleDetail>(`/sales/${id}`),
   create: (input: CreateSaleInput) => api.post<SaleDetail>("/sales", input),
   update: (id: number, input: UpdateSaleInput) => api.put<SaleDetail>(`/sales/${id}`, input),
-  delete: (id: number) => api.delete<void>(`/sales/${id}`),
+  /** El motivo es opcional y queda en el historial de ventas eliminadas */
+  delete: (id: number, reason?: string) => api.delete<void>(`/sales/${id}`, reason ? { reason } : undefined),
+  listDeleted: (filters: DeletedSaleFilters, page: number, pageSize = 20) =>
+    api.get<Page<DeletedSale>>(`/sales/deleted${toQuery({ ...filters, page, pageSize })}`),
   lookupClient: async (taxId: string): Promise<ClientLookup | null> => {
     if (!taxId.trim()) return null;
     try {

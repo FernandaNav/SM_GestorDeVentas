@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import type { DateRange } from "@shared/schemas/common";
+import type { DateRange, Page, Pagination } from "@shared/schemas/common";
 import type { AssignCommissionInput, CommissionFilters, CommissionItem, CommissionSellerSummary } from "@shared/schemas/commissions";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
@@ -10,8 +10,12 @@ export function listSellers(range: DateRange): Promise<CommissionSellerSummary[]
   return commissionsRepository.findSellerSummaries(pool, range);
 }
 
-export function listItems(filters: CommissionFilters): Promise<CommissionItem[]> {
-  return commissionsRepository.findItems(pool, filters);
+export async function listItems(filters: CommissionFilters, { page, pageSize }: Pagination): Promise<Page<CommissionItem>> {
+  const totalItems = await commissionsRepository.countItems(pool, filters);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const items = await commissionsRepository.findItems(pool, filters, pageSize, (currentPage - 1) * pageSize);
+  return { items, page: currentPage, pageSize, totalItems, totalPages };
 }
 
 /**

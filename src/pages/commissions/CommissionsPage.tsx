@@ -3,6 +3,7 @@ import type { CommissionItem } from "@shared/schemas/commissions";
 import { ApiError } from "@/api/client";
 import { commissionsApi } from "@/api/commissions";
 import { toApiDay } from "@/api/reports";
+import Pagination from "@/components/Pagination";
 import Segmented from "@/components/Segmented";
 import { type DateRange, DateRangePicker, fmtRangeLong, presetRange } from "@/components/dates";
 import { Badge, Button, Card, Icon } from "@/components/ui";
@@ -12,6 +13,7 @@ import EmptyState from "@/pages/stats/EmptyState";
 import AssignPendingModal from "./AssignPendingModal";
 
 const STATUS_OPTIONS = { Todas: "todas", Pendientes: "pendientes" } as const;
+const ITEMS_PAGE_SIZE = 20;
 type StatusLabel = keyof typeof STATUS_OPTIONS;
 
 // Comisiones por vendedor y rango de fechas (RF 3.3), y asignación de las pendientes:
@@ -20,6 +22,7 @@ export default function CommissionsPage() {
   const [range, setRange] = useState<DateRange>(() => presetRange("Este mes"));
   const [sellerId, setSellerId] = useState<number | null>(null);
   const [status, setStatus] = useState<StatusLabel>("Todas");
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [assigning, setAssigning] = useState<CommissionItem[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -27,12 +30,13 @@ export default function CommissionsPage() {
   const apiRange = { from: toApiDay(range.start), to: toApiDay(range.end) };
   const rangeKey = `${apiRange.from}:${apiRange.to}`;
   const sellersQuery = useApiQuery(`commissions:sellers:${rangeKey}`, () => commissionsApi.sellers(apiRange));
-  const itemsQuery = useApiQuery(`commissions:items:${rangeKey}:${sellerId}:${status}`, () =>
-    commissionsApi.items({ ...apiRange, sellerId: sellerId ?? undefined, status: STATUS_OPTIONS[status] }),
+  const itemsQuery = useApiQuery(`commissions:items:${rangeKey}:${sellerId}:${status}:${page}`, () =>
+    commissionsApi.items({ ...apiRange, sellerId: sellerId ?? undefined, status: STATUS_OPTIONS[status] }, page, ITEMS_PAGE_SIZE),
   );
 
   const sellers = sellersQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const itemsPage = itemsQuery.data;
+  const items = itemsPage?.items ?? [];
   const current = sellerId === null ? null : sellers.find((s) => s.sellerId === sellerId);
   const scope = current ? [current] : sellers;
   const totals = {
@@ -49,6 +53,11 @@ export default function CommissionsPage() {
   const allSelected = assignable.length > 0 && selectedItems.length === assignable.length;
 
   const resetSelection = () => setSelected(new Set());
+  // Al cambiar lo que se consulta se vuelve a la primera página
+  const resetView = () => {
+    resetSelection();
+    setPage(1);
+  };
   const toggle = (id: number) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -85,7 +94,7 @@ export default function CommissionsPage() {
             value={range}
             onChange={(next) => {
               setRange(next);
-              resetSelection();
+              resetView();
             }}
             align="right"
           />
@@ -154,7 +163,7 @@ export default function CommissionsPage() {
                   selected={sellerId === null}
                   onClick={() => {
                     setSellerId(null);
-                    resetSelection();
+                    resetView();
                   }}
                   salesCount={sellers.reduce((sum, s) => sum + s.salesCount, 0)}
                   totalSold={sellers.reduce((sum, s) => sum + s.totalSold, 0)}
@@ -168,7 +177,7 @@ export default function CommissionsPage() {
                     selected={sellerId === s.sellerId}
                     onClick={() => {
                       setSellerId(s.sellerId);
-                      resetSelection();
+                      resetView();
                     }}
                     salesCount={s.salesCount}
                     totalSold={s.totalSold}
@@ -199,7 +208,7 @@ export default function CommissionsPage() {
               value={status}
               onChange={(value) => {
                 setStatus(value as StatusLabel);
-                resetSelection();
+                resetView();
               }}
             />
           </div>
@@ -222,7 +231,8 @@ export default function CommissionsPage() {
                     <input
                       type="checkbox"
                       className="rpt-check"
-                      aria-label="Seleccionar todos los pendientes"
+                      aria-label="Seleccionar los pendientes de esta página"
+                      title="Seleccionar los pendientes de esta página"
                       disabled={assignable.length === 0}
                       checked={allSelected}
                       onChange={() => setSelected(allSelected ? new Set() : new Set(assignable.map((item) => item.id)))}
@@ -286,6 +296,19 @@ export default function CommissionsPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {itemsPage && items.length > 0 && (
+          <Pagination
+            page={itemsPage.page}
+            pageSize={itemsPage.pageSize}
+            totalItems={itemsPage.totalItems}
+            totalPages={itemsPage.totalPages}
+            onPageChange={(next) => {
+              setPage(next);
+              resetSelection();
+            }}
+            noun="artículos"
+          />
         )}
       </Card>
 

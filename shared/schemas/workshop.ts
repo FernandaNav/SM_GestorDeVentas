@@ -77,10 +77,11 @@ export const workshopCheckoutSchema = z
   });
 export type WorkshopCheckoutInput = z.infer<typeof workshopCheckoutSchema>;
 
-export const workshopFiltersSchema = z.object({
-  view: z.enum(["activas", "historial"]).default("activas"),
+/** Historial de órdenes entregadas: ?search=...&page=1&pageSize=20 */
+export const workshopHistoryFiltersSchema = z.object({
+  search: z.string().trim().max(100, "Máximo 100 caracteres").optional(),
 });
-export type WorkshopFilters = z.infer<typeof workshopFiltersSchema>;
+export type WorkshopHistoryFilters = z.infer<typeof workshopHistoryFiltersSchema>;
 
 /** Para /api/workshop/:id/items/:itemId */
 export const workshopItemParamsSchema = z.object({
@@ -132,6 +133,12 @@ export type WorkshopOrderEvent = {
 export type WorkshopOrderDetail = WorkshopOrderSummary & {
   items: WorkshopOrderItem[];
   events: WorkshopOrderEvent[];
+};
+
+/** Indicadores que no salen de la lista de activas (el historial va paginado). */
+export type WorkshopSummary = {
+  deliveredToday: number;
+  deliveredTotal: number;
 };
 
 /** Número visible de la orden: 7 → "OT-0007" */

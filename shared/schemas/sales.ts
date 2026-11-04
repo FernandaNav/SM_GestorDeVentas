@@ -5,6 +5,7 @@ import {
   SALE_ITEM_ORIGINS,
   TAX_ID_TYPES,
   type PaymentMethod,
+  type Role,
   type SaleItemOrigin,
   type TaxIdType,
 } from "../constants";
@@ -178,3 +179,34 @@ export type SaleDetail = {
   items: SaleItem[];
 };
 
+
+// ─── ventas eliminadas ──────────────────────────────────────────────────────
+
+/** Motivo opcional al eliminar una venta; queda en la bitácora junto con la copia de la venta. */
+export const deleteSaleSchema = z.object({
+  reason: z.string().trim().max(300, "Máximo 300 caracteres").optional(),
+});
+export type DeleteSaleInput = z.infer<typeof deleteSaleSchema>;
+
+/** ?from=AAAA-MM-DD&to=AAAA-MM-DD (fecha en que se eliminó) &search=... */
+export const deletedSaleFiltersSchema = z
+  .object({
+    from: z.string().date("Fecha inválida (usa AAAA-MM-DD)"),
+    to: z.string().date("Fecha inválida (usa AAAA-MM-DD)"),
+    search: z.string().trim().max(100, "Máximo 100 caracteres").optional(),
+  })
+  .refine(({ from, to }) => from <= to, { message: "La fecha inicial debe ser anterior a la final", path: ["to"] });
+export type DeletedSaleFilters = z.infer<typeof deletedSaleFiltersSchema>;
+
+/**
+ * Venta eliminada tal como estaba al borrarse. Sale de la copia que guarda la bitácora
+ * (RNF 1.2), así que también aparecen las que se eliminaron antes de existir esta vista.
+ */
+export type DeletedSale = {
+  auditId: number;
+  saleId: number;
+  deletedAt: string;
+  deletedByRole: Role | null;
+  reason: string | null;
+  sale: SaleDetail;
+};

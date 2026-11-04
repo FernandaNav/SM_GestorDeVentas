@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { paginationSchema } from "@shared/schemas/common";
 import { assignCommissionSchema, commissionFiltersSchema } from "@shared/schemas/commissions";
 import { requireRole } from "../../middlewares/auth";
 import * as commissionsService from "./commissions.service";
@@ -14,9 +15,9 @@ commissionsRouter.get("/sellers", async (req, res) => {
   res.json(await commissionsService.listSellers({ from, to }));
 });
 
-// ?from&to &sellerId &status=todas|pendientes
+// ?from&to &sellerId &status=todas|pendientes &page &pageSize
 commissionsRouter.get("/items", async (req, res) => {
-  res.json(await commissionsService.listItems(commissionFiltersSchema.parse(req.query)));
+  res.json(await commissionsService.listItems(commissionFiltersSchema.parse(req.query), paginationSchema.parse(req.query)));
 });
 
 // { itemIds: [12, 13], commissionRate: 4 }

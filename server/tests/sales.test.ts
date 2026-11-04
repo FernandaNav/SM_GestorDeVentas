@@ -361,6 +361,197 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  /** Recorre todas las páginas de una ruta paginada y junta los ids de cada registro. */
+  async function collectPages(route: (page: number) => string, idOf: (item: any) => number) {
+    const ids: number[] = [];
+    let page = 1;
+    let totalPages = 1;
+    let totalItems = 0;
+    do {
+      const { data } = await admin("GET", route(page));
+      ids.push(...data.items.map(idOf));
+      totalPages = data.totalPages;
+      totalItems = data.totalItems;
+      page++;
+    } while (page <= totalPages);
+    return { ids, totalItems, totalPages };
+  }
+
+  const yesterdayOf = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+  describe("ventas eliminadas", () => {
+    let today: string;
+    const deletedRoute = (query = "") => `/sales/deleted?from=${today}&to=${today}${query}`;
+    const saleOf = (description: string, unitPrice: number) => ({
+      ...counterSale(),
+      items: [{ description, categoryId: accessoryId, quantity: 2, unitPrice }],
+    });
+
+    before(async () => {
+      today = (await import("../src/lib/dates")).todayInGuatemala();
+    });
+
+    it("guarda la venta como estaba, con su motivo y quién la eliminó", async () => {
+      const { data: sale } = await admin("POST", "/sales", saleOf("Chaqueta eliminada", 300));
+      assert.equal((await admin("DELETE", `/sales/${sale.id}`, { reason: "Se registró dos veces" })).status, 204);
+      assert.equal((await admin("GET", `/sales/${sale.id}`)).status, 404);
+
+      const { status, data } = await admin("GET", deletedRoute(`&search=${sale.id}`));
+      assert.equal(status, 200);
+      const row = data.items.find((item: any) => item.saleId === sale.id);
+      assert.ok(row, "la venta eliminada debe aparecer en el historial");
+      assert.equal(row.reason, "Se registró dos veces");
+      assert.equal(row.deletedByRole, "Administrador");
+      assert.equal(row.sale.total, 600);
+      assert.equal(row.sale.sellerName, "Vendedor Prueba");
+      assert.equal(row.sale.items[0].description, "Chaqueta eliminada");
+    });
+
+    it("sin motivo queda vacío", async () => {
+      const { data: sale } = await admin("POST", "/sales", saleOf("Guantes sin motivo", 80));
+      assert.equal((await admin("DELETE", `/sales/${sale.id}`)).status, 204);
+      const { data } = await admin("GET", deletedRoute(`&search=${sale.id}`));
+      assert.equal(data.items.find((item: any) => item.saleId === sale.id).reason, null);
+    });
+
+    it("rechaza un motivo demasiado largo y no elimina la venta", async () => {
+      const { data: sale } = await admin("POST", "/sales", saleOf("Casco motivo largo", 90));
+      const { status, data } = await admin("DELETE", `/sales/${sale.id}`, { reason: "x".repeat(301) });
+      assert.equal(status, 400);
+      assert.ok(data.fields.reason);
+      assert.equal((await admin("GET", `/sales/${sale.id}`)).status, 200);
+    });
+
+    it("busca por producto, vendedor y número de venta con o sin #", async () => {
+      const { data: sale } = await admin("POST", "/sales", saleOf("Pechera buscable", 150));
+      await admin("DELETE", `/sales/${sale.id}`);
+      const found = async (search: string) =>
+        (await admin("GET", deletedRoute(`&search=${encodeURIComponent(search)}`))).data.items.some((item: any) => item.saleId === sale.id);
+      assert.ok(await found("pechera BUSCABLE"));
+      assert.ok(await found("Vendedor Prueba"));
+      assert.ok(await found(`#${sale.id}`));
+      assert.ok(await found(String(sale.id)));
+      assert.equal(await found("no existe ningún producto así"), false);
+    });
+
+    it("el rango de fechas es el del día en que se eliminó", async () => {
+      const yesterday = yesterdayOf(today);
+      const { data } = await admin("GET", `/sales/deleted?from=${yesterday}&to=${yesterday}`);
+      assert.equal(data.totalItems, 0);
+      assert.equal(data.items.length, 0);
+    });
+
+    it("pagina sin repetir y una página de más devuelve la última", async () => {
+      for (let n = 0; n < 3; n++) {
+        const { data: sale } = await admin("POST", "/sales", saleOf(`Paginada ${n}`, 10 + n));
+        await admin("DELETE", `/sales/${sale.id}`);
+      }
+      const { ids, totalItems, totalPages } = await collectPages((page) => deletedRoute(`&pageSize=2&page=${page}`), (item) => item.auditId);
+      assert.equal(ids.length, totalItems);
+      assert.equal(new Set(ids).size, ids.length, "ninguna venta se repite entre páginas");
+      assert.ok(totalPages >= 3);
+
+      const { data: beyond } = await admin("GET", deletedRoute("&pageSize=2&page=999"));
+      assert.equal(beyond.page, totalPages);
+      assert.ok(beyond.items.length > 0);
+    });
+
+    it("una venta de taller eliminada conserva qué fue servicio y qué repuesto", async () => {
+      const { sale } = await chargedWorkshopOrder();
+      await admin("DELETE", `/sales/${sale.id}`, { reason: "Cobro equivocado" });
+      const { data } = await admin("GET", deletedRoute(`&search=${sale.id}`));
+      const origins = data.items.find((item: any) => item.saleId === sale.id).sale.items.map((item: any) => item.origin).sort();
+      assert.deepEqual(origins, ["taller_repuesto", "taller_servicio"]);
+    });
+
+    it("solo el Administrador las consulta", async () => {
+      assert.equal((await employee("GET", deletedRoute())).status, 403);
+    });
+  });
+
+  describe("historial de taller paginado", () => {
+    /** Orden cobrada con un cliente propio, para poder buscarla sin chocar con las demás pruebas. */
+    async function deliveredOrder(clientName: string) {
+      const { data: order } = await admin("POST", "/workshop", { clientName, motorcycle: "Suzuki GN125", workDescription: "Servicio", mechanicId });
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "servicio", description: "Mano de obra", categoryId: serviceId, quantity: 1, unitPrice: 75 });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "En reparación" });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
+      await admin("POST", `/workshop/${order.id}/checkout`, { sellerId, paymentMethod: "Efectivo", isInvoiced: false });
+      return order.id as number;
+    }
+
+    const historyIds: number[] = [];
+    before(async () => {
+      for (const name of ["Historial Uno", "Historial Dos", "Historial Tres"]) historyIds.push(await deliveredOrder(name));
+    });
+
+    it("las entregadas salen de activas y el historial pagina sin repetir", async () => {
+      const { data: active } = await admin("GET", "/workshop");
+      assert.ok(historyIds.every((id) => !active.some((order: any) => order.id === id)));
+
+      const { ids, totalItems, totalPages } = await collectPages((page) => `/workshop/history?search=Historial&pageSize=2&page=${page}`, (order) => order.id);
+      assert.equal(totalItems, 3);
+      assert.equal(totalPages, 2);
+      assert.deepEqual(ids, [...historyIds].reverse(), "de la más reciente a la más antigua");
+    });
+
+    it("encuentra una orden por su número aunque esté en otra página", async () => {
+      const target = historyIds[0];
+      for (const search of [`OT-${String(target).padStart(4, "0")}`, `ot${target}`, String(target)]) {
+        const { data } = await admin("GET", `/workshop/history?search=${encodeURIComponent(search)}&pageSize=1`);
+        assert.ok(data.items.some((order: any) => order.id === target), `buscar "${search}"`);
+      }
+    });
+
+    it("el resumen cuenta las entregadas de hoy y el total del historial", async () => {
+      const { data: summary } = await admin("GET", "/workshop/summary");
+      const { data: all } = await admin("GET", "/workshop/history?pageSize=1");
+      assert.equal(summary.deliveredTotal, all.totalItems);
+      assert.ok(summary.deliveredToday >= 3);
+    });
+
+    it("una página de más devuelve la última, y el empleado también lo consulta", async () => {
+      const { data } = await employee("GET", "/workshop/history?search=Historial&pageSize=2&page=50");
+      assert.equal(data.page, 2);
+      assert.equal(data.items.length, 1);
+      assert.equal((await employee("GET", "/workshop/summary")).status, 200);
+    });
+  });
+
+  describe("comisiones paginadas", () => {
+    let today: string;
+    const itemsRoute = (query: string) => `/commissions/items?from=${today}&to=${today}${query}`;
+
+    before(async () => {
+      today = (await import("../src/lib/dates")).todayInGuatemala();
+      // El empleado no fija comisiones: un servicio de taller queda pendiente
+      for (let n = 0; n < 3; n++) {
+        await employee("POST", "/sales", {
+          ...counterSale(),
+          items: [{ description: `Servicio pendiente ${n}`, categoryId: serviceId, quantity: 1, unitPrice: 40 }],
+        });
+      }
+    });
+
+    it("pagina los artículos sin repetir", async () => {
+      const { ids, totalItems } = await collectPages((page) => itemsRoute(`&sellerId=${sellerId}&pageSize=2&page=${page}`), (item) => item.id);
+      assert.ok(totalItems >= 3);
+      assert.equal(ids.length, totalItems);
+      assert.equal(new Set(ids).size, ids.length);
+    });
+
+    it("el total respeta el filtro de pendientes", async () => {
+      const { data } = await admin("GET", itemsRoute("&status=pendientes&pageSize=100"));
+      assert.equal(data.totalItems, data.items.length);
+      assert.ok(data.totalItems >= 3);
+      assert.ok(data.items.every((item: any) => item.commissionRate === null));
+    });
+
+    it("solo el Administrador lo consulta", async () => {
+      assert.equal((await employee("GET", itemsRoute("&pageSize=2"))).status, 403);
+    });
+  });
+
   // Va al final: el cierre deja en solo lectura todas las ventas creadas hasta aquí
   it("una venta cerrada no se edita ni se elimina, su orden no cambia y el historial la marca", async () => {
     const { orderId, sale } = await chargedWorkshopOrder();
