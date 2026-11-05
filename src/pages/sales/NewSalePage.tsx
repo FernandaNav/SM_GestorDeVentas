@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PaymentMethod, Role } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, type PaymentMethod, type Role } from "@shared/constants";
 import { createSaleSchema, type CreateSaleInput, type SaleDetail, type SaleItemInput } from "@shared/schemas/sales";
 import { ApiError, errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
@@ -37,6 +37,8 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
   const [clientId, setClientId] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientAddress, setClientAddress] = useState("");
+  // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
+  const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -76,7 +78,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
 
   const total = items.reduce((acc, item) => acc + item.qty * item.price, 0);
   const isCF = clientId.trim().toUpperCase() === "CF";
-  const isCfWarning = isInvoiced && isCF && total >= 2500;
+  const isCfWarning = isInvoiced && (isCF || cfRejected) && total >= CF_MAX_INVOICE_TOTAL;
 
   const handleResetSale = () => {
     setItems([{ id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" }]);
@@ -87,6 +89,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     setClientId("");
     setClientName("");
     setClientAddress("");
+    setCfRejected(false);
     setObservations("");
     setIsConfirmed(false);
     setCreatedSale(null);
@@ -99,6 +102,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     const next = formatTaxId(idType, value);
     if (next === clientId) return;
     clearErrors();
+    setCfRejected(false);
     setClientId(next);
     if (clientLookup.client || isCF) {
       setClientName("");
@@ -115,6 +119,12 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
 
   const handleFillCF = () => {
     clearErrors();
+    // Desde Q2,500 la SAT exige NIT o CUI: no se llena como Consumidor Final, solo se avisa
+    if (total >= CF_MAX_INVOICE_TOTAL) {
+      setCfRejected(true);
+      return;
+    }
+    setCfRejected(false);
     setClientId("CF");
     setClientName("Consumidor Final");
     setClientAddress("Ciudad");
@@ -327,7 +337,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
               {isCfWarning && (
                 <div className="cf-warning">
                   <Icon name="bell" size="sm" />
-                  <span>Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.</span>
+                  <span>Para ventas de {formatQuetzales(CF_MAX_INVOICE_TOTAL)} o más la SAT requiere NIT o CUI del comprador; no se puede facturar como Consumidor Final.</span>
                 </div>
               )}
 

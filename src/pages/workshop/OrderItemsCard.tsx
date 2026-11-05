@@ -8,7 +8,7 @@ import {
 import { ApiError } from "@/api/client";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
-import { Badge, Button, Card, Icon } from "@/components/ui";
+import { Badge, Button, Card, Icon, Select } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
 import { issuesToErrors } from "@/lib/validation";
 
@@ -169,11 +169,7 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
                     />
                   </td>
                   <td>
-                    <select className="cell-select" value={category?.name ?? ""} onChange={(e) => setCategoryName(e.target.value)}>
-                      {categories.map((c) => (
-                        <option key={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                    <Select compact ariaLabel="Categoría" value={category?.name ?? ""} options={categories.map((c) => c.name)} onChange={setCategoryName} />
                   </td>
                   <td>
                     <input className="cell-input narrow" type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} />

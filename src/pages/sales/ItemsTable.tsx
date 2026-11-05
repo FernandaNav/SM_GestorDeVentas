@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useCatalog } from "@/catalog/CatalogContext";
 import MoneyInput from "@/components/MoneyInput";
-import { Icon } from "@/components/ui";
+import { Icon, Select } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
 
 /** Una fila del formulario de venta, como se está escribiendo. */
@@ -97,15 +97,7 @@ export default function ItemsTable({
                   />
                 </td>
                 <td>
-                  <select
-                    className="cell-select"
-                    value={item.cat}
-                    onChange={(e) => updateItem(item.id, "cat", e.target.value)}
-                  >
-                    {categoryNames.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
+                  <Select compact ariaLabel="Categoría" value={item.cat} options={categoryNames} onChange={(value) => updateItem(item.id, "cat", value)} />
                 </td>
                 <td>
                   <input

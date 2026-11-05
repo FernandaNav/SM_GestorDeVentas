@@ -74,7 +74,7 @@ function AppRoutes() {
             />
             <Route
               path={paths.settings}
-              element={<SettingsPage dark={theme.dark} onSetDark={theme.setDark} accent={theme.accent} onSetAccent={theme.setAccent} />}
+              element={<SettingsPage dark={theme.dark} onSetDark={theme.setDark} />}
             />
           </Route>
         </Route>
