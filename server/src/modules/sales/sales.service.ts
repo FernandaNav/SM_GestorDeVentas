@@ -34,14 +34,15 @@ export type NewSale = Omit<CreateSaleInput, "items"> & {
  * - Comisión por artículo: la de la categoría, salvo que el Administrador indique otra
  *   (null = pendiente). El Empleado no puede fijar comisiones.
  * - Si se factura a un NIT/CUI, guarda o actualiza el cliente para autocompletar después.
- * Taller la llama pasando su propio `db` para cobrar la orden dentro de su transacción.
+ * Taller la llama pasando su propio `db` para cobrar la orden dentro de su transacción, y las
+ * categorías de la orden en `keptCategoryIds`: se pueden cobrar aunque ya estén inactivas.
  */
-export async function createSale(input: NewSale, req: Request, db?: pg.PoolClient): Promise<SaleDetail> {
-  if (!db) return withTransaction((tx) => createSale(input, req, tx));
+export async function createSale(input: NewSale, req: Request, db?: pg.PoolClient, keptCategoryIds?: Set<number>): Promise<SaleDetail> {
+  if (!db) return withTransaction((tx) => createSale(input, req, tx, keptCategoryIds));
 
   const user = currentUser(req);
   await assertActiveSeller(db, input.sellerId);
-  const items = await resolveItems(db, input.items, user.role);
+  const items = await resolveItems(db, input.items, user.role, keptCategoryIds);
 
   const client = input.isInvoiced && input.client ? input.client : null;
   const clientSnapshot = client

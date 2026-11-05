@@ -35,8 +35,8 @@ export default function ItemsTable({
     commission: defaultCommissions[defaultCategory] ?? "",
   });
 
-  // Si una categoría del formulario ya no está activa (la desactivaron en Configuración),
-  // se cambia a la de por defecto con su comisión, para no enviar una que el servidor rechazaría.
+  // Una fila nueva (sin categoría) o con una categoría que ya no está activa toma la de por
+  // defecto con la comisión configurada, para no enviar una que el servidor rechazaría.
   useEffect(() => {
     if (categoryNames.length === 0) return;
     if (items.every((item) => categoryNames.includes(item.cat))) return;

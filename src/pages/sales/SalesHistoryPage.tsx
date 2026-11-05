@@ -3,11 +3,11 @@ import type { PaymentMethod, Role } from "@shared/constants";
 import type { SaleDetail, SaleFilters, SaleSummary } from "@shared/schemas/sales";
 import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
-import { useCatalog } from "@/catalog/CatalogContext";
 import Pagination from "@/components/Pagination";
 import { type DateRange, DateRangePicker, presetRange } from "@/components/dates";
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useCategoryFilterOptions } from "@/hooks/useCategoryFilterOptions";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useSellerFilterOptions } from "@/hooks/useSellerFilterOptions";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
@@ -19,7 +19,7 @@ const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
 
 export default function SalesHistory({ role }: { role: Role }) {
-  const { categories, categoryNames } = useCatalog();
+  const categoryOptions = useCategoryFilterOptions();
   const sellerOptions = useSellerFilterOptions();
   const isAdmin = role === "Administrador";
 
@@ -69,7 +69,7 @@ export default function SalesHistory({ role }: { role: Role }) {
         if (found) filters.sellerId = found.id;
       }
       if (filterCategory !== "Todas las categorías") {
-        const found = categories.find((c) => c.name === filterCategory);
+        const found = categoryOptions.find((c) => c.label === filterCategory);
         if (found) filters.categoryId = found.id;
       }
       if (filterPayment !== "Cualquier pago") {
@@ -98,7 +98,7 @@ export default function SalesHistory({ role }: { role: Role }) {
     filterPendingCommission,
     debouncedSearch,
     sellerOptions,
-    categories,
+    categoryOptions,
   ]);
 
   const queryKey = useMemo(() => JSON.stringify(activeFilters), [activeFilters]);
@@ -248,7 +248,7 @@ export default function SalesHistory({ role }: { role: Role }) {
           />
           <Select
             value={filterCategory}
-            options={["Todas las categorías", ...categoryNames]}
+            options={["Todas las categorías", ...categoryOptions.map((c) => c.label)]}
             onChange={onFilter(setFilterCategory)}
           />
           <Select

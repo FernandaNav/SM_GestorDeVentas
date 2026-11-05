@@ -19,15 +19,16 @@ import SaleSuccess from "@/pages/sales/SaleSuccess";
 
 const CHOOSE_SELLER = "Elige el vendedor";
 
+/** Fila inicial: su categoría y su comisión las llena ItemsTable con lo configurado actualmente. */
+const emptyItem = (): SaleItem => ({ id: 1, desc: "", cat: "", qty: 1, price: 0, commission: "" });
+
 export default function NewSale({ role, onHistory }: { role: Role; onHistory: () => void }) {
   const { sellers, sellerNames, categories } = useCatalog();
   const isAdmin = role === "Administrador";
   const now = useCurrentDate();
   const saleTimestamp = `${capitalize(SALE_DATE_FORMAT.format(now))} · ${SALE_TIME_FORMAT.format(now)}`;
 
-  const [items, setItems] = useState<SaleItem[]>([
-    { id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" },
-  ]);
+  const [items, setItems] = useState<SaleItem[]>(() => [emptyItem()]);
   const [chosenSeller, setSeller] = useState("");
   // La comisión depende de quién vendió: solo se da por hecho si no hay a quién más elegir
   const seller = chosenSeller || (sellerNames.length === 1 ? sellerNames[0] : "");
@@ -81,7 +82,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
   const isCfWarning = isInvoiced && (isCF || cfRejected) && total >= CF_MAX_INVOICE_TOTAL;
 
   const handleResetSale = () => {
-    setItems([{ id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" }]);
+    setItems([emptyItem()]);
     setSeller("");
     setPaymentMethod("Tarjeta");
     setIsInvoiced(true);
