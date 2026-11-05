@@ -2,6 +2,9 @@
 
 export const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
+/** 1 → "1 venta registrada"; 0 o 2 → "2 ventas registradas" */
+export const countLabel = (count: number, singular: string, plural: string) => `${count} ${count === 1 ? singular : plural}`;
+
 export function formatQuetzales(amount: number): string {
   return "Q " + amount.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

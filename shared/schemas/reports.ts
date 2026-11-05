@@ -110,6 +110,7 @@ export type DashboardSummary = {
   commissions: { total: number; pendingItems: number; pendingSales: number };
   expenses: { total: number; count: number };
   invoices: { issued: number; limit: number; alertPercent: number };
+  workshop: { received: number; inRepair: number; ready: number; deliveredToday: number };
   sellers: { currentMonth: SellerBreakdown[]; previousMonth: SellerBreakdown[] };
   /** Ventas y gastos por día, del 1 del mes a hoy */
   dailySeries: SeriesPoint[];

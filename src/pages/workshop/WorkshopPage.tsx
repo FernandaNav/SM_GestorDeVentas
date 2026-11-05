@@ -69,11 +69,7 @@ export default function WorkshopPage() {
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">Órdenes de taller</div>
-          <div className="muted">Registra y da seguimiento a los servicios de motocicletas.</div>
-        </div>
+      <div className="hero-row hero-actions">
         <Button icon="plus" onClick={() => setIsNewModalOpen(true)}>
           Nuevo servicio
         </Button>
@@ -205,11 +201,11 @@ function OrdersTable({ orders, onOpen }: { orders: WorkshopOrderSummary[]; onOpe
           {orders.map((order) => (
             <tr key={order.id} style={{ cursor: "pointer" }} onClick={() => onOpen(order.id)}>
               <td><strong>{formatOrderNumber(order.id)}</strong></td>
-              <td>{order.clientName}</td>
+              <td className="cell-name" title={order.clientName}>{order.clientName}</td>
               <td>{order.clientPhone ?? "—"}</td>
               <td>{order.plate ? `${order.motorcycle} · ${order.plate}` : order.motorcycle}</td>
-              <td>{order.workDescription}</td>
-              <td>{order.mechanicName}</td>
+              <td className="cell-fill" title={order.workDescription}>{order.workDescription}</td>
+              <td className="cell-name" title={order.mechanicName}>{order.mechanicName}</td>
               <td><Badge tone={WORKSHOP_STATUS_TONES[order.status]}>{order.status}</Badge></td>
               <td><OrderCost order={order} /></td>
             </tr>

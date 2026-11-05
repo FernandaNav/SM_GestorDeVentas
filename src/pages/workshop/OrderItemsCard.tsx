@@ -86,65 +86,8 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
 
   return (
     <Card className="form-card">
-      <div className="card-heading">
-        <div>
-          <div className="card-title">Servicios y repuestos</div>
-          <div className="muted small">Lo que se le cobrará al cliente al entregar la moto.</div>
-        </div>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="empty-state-box">
-          <div className="empty-state-icon">
-            <Icon name="wrench" />
-          </div>
-          <div className="empty-state-title">Todavía no hay servicios ni repuestos</div>
-          <div className="empty-state-desc">Agrégalos abajo conforme el mecánico avance con el trabajo.</div>
-        </div>
-      ) : (
-        <div className="items-table-wrap">
-          <table className="items-table">
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Descripción</th>
-                <th>Categoría</th>
-                <th>Cant.</th>
-                <th>Precio unit.</th>
-                <th>Subtotal</th>
-                {editable && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td><Badge tone={item.kind === "servicio" ? "info" : "neutral"}>{KIND_LABELS[item.kind]}</Badge></td>
-                  <td><strong>{item.description}</strong></td>
-                  <td>{item.categoryName ?? "—"}</td>
-                  <td>{item.quantity}</td>
-                  <td>{formatQuetzales(item.unitPrice)}</td>
-                  <td className="cell-amount">{formatQuetzales(item.subtotal)}</td>
-                  {editable && (
-                    <td>
-                      <button type="button" className="icon-button" disabled={busy} onClick={() => handleRemove(item)} aria-label={`Quitar ${item.description}`}>
-                        <Icon name="trash" size="sm" />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              <tr>
-                <td colSpan={5} className="cell-amount">Total</td>
-                <td className="cell-amount">{formatQuetzales(total)}</td>
-                {editable && <td />}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {editable && (
-        <div className="screen-stack" style={{ marginTop: 18 }}>
+        <div className="screen-stack" style={{ marginBottom: 28 }}>
           <div className="field-label">Agregar</div>
           <Segmented options={["Servicio", "Repuesto"]} value={KIND_LABELS[kind]} onChange={handleKindChange} />
           <div className="items-table-wrap">
@@ -189,6 +132,64 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
           {fieldError && <span className="field-error">{fieldError}</span>}
         </div>
       )}
+
+      <div className="card-heading">
+        <div>
+          <div className="card-title">Servicios y repuestos</div>
+          <div className="muted small">Lo que se le cobrará al cliente al entregar la moto.</div>
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="empty-state-box">
+          <div className="empty-state-icon">
+            <Icon name="wrench" />
+          </div>
+          <div className="empty-state-title">Todavía no hay servicios ni repuestos</div>
+          <div className="empty-state-desc">Agrégalos arriba conforme el mecánico avance con el trabajo.</div>
+        </div>
+      ) : (
+        <div className="items-table-wrap">
+          <table className="items-table">
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Descripción</th>
+                <th>Categoría</th>
+                <th>Cant.</th>
+                <th>Precio unit.</th>
+                <th>Subtotal</th>
+                {editable && <th />}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td><Badge tone={item.kind === "servicio" ? "info" : "neutral"}>{KIND_LABELS[item.kind]}</Badge></td>
+                  <td><strong>{item.description}</strong></td>
+                  <td>{item.categoryName ?? "—"}</td>
+                  <td>{item.quantity}</td>
+                  <td>{formatQuetzales(item.unitPrice)}</td>
+                  <td className="cell-amount">{formatQuetzales(item.subtotal)}</td>
+                  {editable && (
+                    <td>
+                      <button type="button" className="icon-button" disabled={busy} onClick={() => handleRemove(item)} aria-label={`Quitar ${item.description}`}>
+                        <Icon name="trash" size="sm" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={5} className="cell-amount">Total</td>
+                <td className="cell-amount">{formatQuetzales(total)}</td>
+                {editable && <td />}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
     </Card>
   );
 }

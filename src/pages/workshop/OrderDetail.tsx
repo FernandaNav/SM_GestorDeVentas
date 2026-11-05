@@ -120,7 +120,7 @@ export default function OrderDetail({ orderId, onBack }: { orderId: number; onBa
 
       <div className="step-indicator">
         {WORKSHOP_STATUS_SEQUENCE.map((statusName, idx) => (
-          <div key={statusName} className={`step ${idx <= statusIndex ? "done" : ""} ${idx === statusIndex ? "current" : ""}`}>
+          <div key={statusName} className={`step ${idx <= statusIndex ? "done" : ""} ${idx === statusIndex && !isDelivered ? "current" : ""}`}>
             <div className="step-dot">{idx < statusIndex || isDelivered ? <Icon name="check" size="sm" /> : <span>{idx + 1}</span>}</div>
             <div className="step-label">{statusName}</div>
             {idx < WORKSHOP_STATUS_SEQUENCE.length - 1 && <div className="step-line" />}

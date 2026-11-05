@@ -721,6 +721,15 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       assert.equal((await employee("GET", "/reports/dashboard")).status, 403);
     });
 
+    it("el resumen de taller cuenta las órdenes por estado", async () => {
+      const before = (await admin("GET", "/reports/dashboard")).data.workshop;
+      await admin("POST", "/workshop", { clientName: "Resumen", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+      const after = (await admin("GET", "/reports/dashboard")).data.workshop;
+
+      assert.equal(after.received, before.received + 1);
+      assert.equal(after.deliveredToday, before.deliveredToday);
+    });
+
     it("varias pantallas a la vez no pasan del máximo de conexiones", async () => {
       const { MAX_DB_CONNECTIONS } = await import("../src/db/pool");
       let peak = 0;

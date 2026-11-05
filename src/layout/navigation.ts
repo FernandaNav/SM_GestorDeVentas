@@ -28,7 +28,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: paths.dashboard, label: "Dashboard", title: "Dashboard", icon: "home", roles: ADMIN },
   { path: paths.newSale, label: "Nueva venta", title: "Registrar nueva venta", icon: "plus", roles: BOTH },
   { path: paths.salesHistory, label: "Historial", title: "Historial de ventas", icon: "history", roles: BOTH },
-  { path: paths.workshop, label: "Taller", title: "Taller", icon: "wrench", roles: BOTH },
+  { path: paths.workshop, label: "Taller", title: "Órdenes de taller", icon: "wrench", roles: BOTH },
   { path: paths.commissions, label: "Comisiones", title: "Comisiones por vendedor", icon: "coins", roles: ADMIN },
   { path: paths.stats, label: "Estadísticas", title: "Estadísticas y reportes", icon: "chart", roles: ADMIN },
   { path: paths.expenses, label: "Gastos", title: "Compras y gastos", icon: "receipt", roles: ADMIN },

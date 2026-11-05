@@ -165,7 +165,7 @@ function SalesTab({ current, previous, bucket, label, previousLabel }: TabProps 
   return (
     <div className="screen-stack">
       <div className="kpi-grid">
-        <KpiCard icon="cash" label="Total vendido" value={formatQuetzales(t.total)} foot={foot(t.total, p?.total, `${t.salesCount} transacciones`)} tone="orange" />
+        <KpiCard icon="cash" label="Total vendido" value={formatQuetzales(t.total)} foot={foot(t.total, p?.total, `${t.salesCount} ${t.salesCount === 1 ? "transacción" : "transacciones"}`)} tone="orange" />
         <KpiCard icon="trending" label="Ticket promedio" value={formatQuetzales(t.averageTicket)} foot={foot(t.averageTicket, p?.averageTicket, "Promedio por venta")} tone="blue" />
         <KpiCard icon="history" label="Transacciones" value={String(t.salesCount)} foot={foot(t.salesCount, p?.salesCount, "Ventas realizadas")} tone="purple" />
         <KpiCard icon="file" label="Ventas facturadas" value={String(t.invoicedCount)} foot={foot(t.invoicedCount, p?.invoicedCount, `${t.salesCount - t.invoicedCount} sin factura`)} tone="green" />
@@ -173,7 +173,7 @@ function SalesTab({ current, previous, bucket, label, previousLabel }: TabProps 
           icon="coins"
           label="Comisiones"
           value={formatQuetzales(t.commissionTotal)}
-          foot={t.pendingItems > 0 ? `${t.pendingItems} artículos pendientes de asignar` : "Todas asignadas"}
+          foot={t.pendingItems > 0 ? `${t.pendingItems} ${t.pendingItems === 1 ? "artículo pendiente" : "artículos pendientes"} de asignar` : "Todas asignadas"}
           tone="red"
         />
       </div>

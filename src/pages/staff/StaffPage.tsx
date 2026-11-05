@@ -52,26 +52,21 @@ export default function StaffPage() {
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">Personal</div>
-          <div className="muted">Administra las personas asignadas a ventas y órdenes de taller.</div>
+      <div className="hero-row personal-toolbar">
+        {/* Dos grupos separados y con título, para que no se confundan los dos "Todos" */}
+        <div className="personal-filters">
+          <div className="filter-group" role="group" aria-label="Tipo de personal">
+            <span className="field-label">Tipo de personal</span>
+            <Segmented options={Object.keys(TYPE_FILTERS)} value={typeFilter} onChange={setTypeFilter} />
+          </div>
+          <div className="filter-group" role="group" aria-label="Estado">
+            <span className="field-label">Estado</span>
+            <Segmented options={Object.keys(STATUS_FILTERS)} value={statusFilter} onChange={setStatusFilter} />
+          </div>
         </div>
         <Button icon="plus" onClick={() => setEditing(null)}>
           Agregar persona
         </Button>
-      </div>
-
-      {/* Dos grupos separados y con título, para que no se confundan los dos "Todos" */}
-      <div className="personal-filters">
-        <div className="filter-group" role="group" aria-label="Tipo de personal">
-          <span className="field-label">Tipo de personal</span>
-          <Segmented options={Object.keys(TYPE_FILTERS)} value={typeFilter} onChange={setTypeFilter} />
-        </div>
-        <div className="filter-group" role="group" aria-label="Estado">
-          <span className="field-label">Estado</span>
-          <Segmented options={Object.keys(STATUS_FILTERS)} value={statusFilter} onChange={setStatusFilter} />
-        </div>
       </div>
 
       {(error || actionError) && <div className="cf-warning">{actionError ?? error?.message}</div>}

@@ -254,7 +254,7 @@ export default function EditSaleModal({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--color-line)" }}>
             <div>
               <strong style={{ fontSize: "14px" }}>Factura</strong>
-              <div style={{ fontSize: "12px", color: "var(--color-muted)" }}>¿Esta venta fue facturada?</div>
+              <div style={{ fontSize: "13px", color: "var(--color-muted)" }}>¿Esta venta fue facturada?</div>
             </div>
             <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="Facturada" />
           </div>
@@ -327,7 +327,7 @@ export default function EditSaleModal({
           <div>
             <strong style={{ fontSize: "13px" }}>Artículos de la venta</strong>
             <div style={{ overflowX: "auto", marginTop: "8px" }}>
-              <table className="items-table" style={{ width: "100%", fontSize: "12px" }}>
+              <table className="items-table" style={{ width: "100%", fontSize: "13px" }}>
                 <thead>
                   <tr>
                     <th>Descripción</th>
@@ -410,7 +410,7 @@ export default function EditSaleModal({
             <strong style={{ fontSize: "18px", color: "var(--color-primary)" }}>{formatQuetzales(total)}</strong>
           </div>
 
-          <div style={{ fontSize: "11px", color: "var(--color-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{ fontSize: "13px", color: "var(--color-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
             <Icon name="lock" size="sm" />
             <span>Esta edición quedará registrada en la bitácora de auditoría.</span>
           </div>

@@ -6,12 +6,14 @@ export default function KpiCard({
   value,
   foot,
   tone = "dark",
+  footWarning = false,
 }: {
   icon: IconName;
   label: string;
   value: string;
   foot: string;
   tone?: string;
+  footWarning?: boolean;
 }) {
   return (
     <Card className="kpi-card">
@@ -20,7 +22,7 @@ export default function KpiCard({
       </div>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
-      <div className={`kpi-foot ${foot.startsWith("+") ? "positive" : ""}`}>{foot}</div>
+      <div className={`kpi-foot ${foot.startsWith("+") ? "positive" : ""} ${footWarning ? "warning" : ""}`}>{foot}</div>
     </Card>
   );
 }
