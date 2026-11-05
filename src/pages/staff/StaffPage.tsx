@@ -4,7 +4,7 @@ import type { StaffInput, StaffMember } from "@shared/schemas/staff";
 import { ApiError } from "@/api/client";
 import { staffApi } from "@/api/staff";
 import Segmented from "@/components/Segmented";
-import { Button, Card, Icon } from "@/components/ui";
+import { Button, Card, GlassToggle, Icon } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { formatPhone } from "@/lib/phone";
 import StaffFormModal from "./StaffFormModal";
@@ -94,15 +94,12 @@ export default function StaffPage() {
                   <strong title={member.fullName}>{member.fullName}</strong>
                   <span className={`staff-role ${roleClass}`}>{member.type}</span>
                 </div>
-                <button
-                  type="button"
-                  className={`person-toggle ${member.isActive ? "on" : ""}`}
-                  onClick={() => handleToggleActive(member)}
+                <GlassToggle
+                  checked={member.isActive}
+                  onChange={() => handleToggleActive(member)}
+                  label={member.isActive ? "Activo" : "Inactivo"}
                   title={member.isActive ? "Activo: haz clic para desactivar" : "Inactivo: haz clic para activar"}
-                >
-                  <span />
-                  <span className="toggle-label">{member.isActive ? "Activo" : "Inactivo"}</span>
-                </button>
+                />
               </div>
               <div className="staff-card-footer">
                 <div className={`staff-phone ${member.phone ? "" : "is-empty"}`}>

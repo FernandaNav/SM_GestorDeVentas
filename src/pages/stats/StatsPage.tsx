@@ -24,6 +24,7 @@ import { formatQuetzales } from "@/lib/format";
 import { BarList, formatChange, LineChart, LineLegend, type LineSeries, percentChange, StackBar } from "./charts";
 import EmptyState from "./EmptyState";
 import { bucketLabel, bucketTick } from "./reportFormat";
+import Segmented from "@/components/Segmented";
 
 const TABS = ["Ventas", "Vendedores", "Categorías", "Ventas vs. gastos", "Ventas vs. taller"] as const;
 type Tab = (typeof TABS)[number];
@@ -101,13 +102,7 @@ export default function StatsPage() {
         <Toggle checked={compare} onChange={setCompare} label={`Comparar con ${previousLabel}`} />
       </Card>
 
-      <div className="stats-tabs" role="tablist">
-        {TABS.map((tab) => (
-          <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={`stats-tab${activeTab === tab ? " active" : ""}`} onClick={() => setActiveTab(tab)}>
-            {tab}
-          </button>
-        ))}
-      </div>
+      <Segmented options={TABS} value={activeTab} onChange={(value) => setActiveTab(value as Tab)} ariaLabel="Tipo de estadística" />
 
       {error && <div className="cf-warning">{error.message}</div>}
       {!data && loading && <Card className="rpt-loading">Calculando estadísticas…</Card>}

@@ -11,6 +11,7 @@ import { formatQuetzales } from "@/lib/format";
 import NewOrderModal from "@/pages/workshop/NewOrderModal";
 import OrderDetail from "@/pages/workshop/OrderDetail";
 import { WORKSHOP_STATUS_TONES } from "@/pages/workshop/workshopStatus";
+import Segmented from "@/components/Segmented";
 
 const HISTORY_PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
@@ -99,12 +100,16 @@ export default function WorkshopPage() {
       <Card>
         <div className="workshop-header">
           <div className="workshop-tabs">
-            <button type="button" className={`workshop-tab ${activeTab === "activas" ? "active" : ""}`} onClick={() => setActiveTab("activas")}>
-              Órdenes activas <span className="tab-count">{activeOrders.length}</span>
-            </button>
-            <button type="button" className={`workshop-tab ${activeTab === "historial" ? "active" : ""}`} onClick={() => setActiveTab("historial")}>
-              {isAdmin ? "Historial" : "Entregadas hoy"} <span className="tab-count">{summary?.deliveredTotal ?? 0}</span>
-            </button>
+            <Segmented
+              options={["activas", "historial"]}
+              value={activeTab}
+              onChange={(value) => setActiveTab(value as typeof activeTab)}
+              ariaLabel="Órdenes"
+              labels={[
+                <>Órdenes activas <span className="tab-count">{activeOrders.length}</span></>,
+                <>{isAdmin ? "Historial" : "Entregadas hoy"} <span className="tab-count">{summary?.deliveredTotal ?? 0}</span></>,
+              ]}
+            />
           </div>
           <TextInput placeholder="Buscar por cliente, moto, placa u orden..." icon="search" value={searchQuery} onChange={handleSearch} />
         </div>

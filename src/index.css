@@ -42,6 +42,9 @@
 
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
+/* Reserva siempre el espacio de la barra de desplazamiento: si no, al cargar una pantalla más alta que la
+   ventana (como Estadísticas) aparece la barra, todo se angosta unos píxeles y los filtros se reacomodan. */
+html { scrollbar-gutter: stable; }
 body { font-family: 'Inter', sans-serif; color: var(--color-text); background: var(--color-bg); font-size: 14px; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
@@ -256,10 +259,8 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 .commission-calc { min-height: 42px; border-radius: var(--radius-sm); padding: 7px 11px; background: var(--color-success-soft); display: flex; flex-direction: column; justify-content: center; }
 .commission-calc span { font-size: 11px; color: var(--color-success); }.commission-calc strong { color: var(--color-success); font-size: 13px; }
 .invoice-toggle { display: flex; justify-content: space-between; align-items: center; }
-.toggle-row { border: 0; background: transparent; display: flex; align-items: center; gap: 9px; font-weight: 600; color: var(--color-text); }
-.toggle { width: 42px; height: 24px; border-radius: 99px; background: var(--color-toggle-off); padding: 3px; display: flex; transition: .2s; }
-.toggle span { width: 18px; height: 18px; border-radius: 50%; background: white; box-shadow: 0 1px 4px rgb(0 0 0 / 20%); transition: .2s; }
-.toggle.is-on { background: var(--color-primary); }.toggle.is-on span { transform: translateX(18px); }
+.toggle-row { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; color: var(--color-text); cursor: pointer; user-select: none; }
+.toggle-row .lg-switch { --lg-on: var(--color-primary); } /* interruptor de liquid glass (glisse), naranja de la marca */
 .section-divider { height: 1px; background: var(--color-line); margin: 22px 0; }
 .summary-title { font-weight: 700; font-size: 16px; margin-bottom: 20px; }
 .summary-product { display: flex; align-items: center; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--color-line); }
@@ -284,7 +285,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 .mini-kpis .card:nth-child(2) strong { color: var(--color-warning); }.mini-kpis .card:nth-child(3) strong, .mini-kpis .card:nth-child(4) strong { color: var(--color-success); }
 .inline-filters { display: flex; gap: 10px; }
 .summary-kpis { grid-template-columns: repeat(3, 1fr); }.summary-kpis strong { font-size: 22px; }.summary-kpis small { color: var(--color-success); font-size: 12px; }
-.report-filters { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 18px; }.report-filters > div:first-child { flex: 1; }.report-filters .toggle-row { min-height: 42px; flex: none; white-space: nowrap; }
+.report-filters { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 18px; }.report-filters > div:first-child { flex: 1 0 auto; }.report-filters .toggle-row { min-height: 42px; flex: none; white-space: nowrap; }
 .reports-grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; }.reports-grid .wide { grid-column: span 2; }
 .donut-layout { display: flex; align-items: center; justify-content: space-around; min-height: 240px; }
 .donut { width: 150px; height: 150px; border-radius: 50%; background: conic-gradient(var(--color-primary) 0 48%, var(--color-blue) 48% 74%, var(--color-purple) 74% 92%, #a7adb6 92% 100%); display: grid; place-items: center; position: relative; }
@@ -303,10 +304,20 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 .settings-layout { display: grid; grid-template-columns: 1.15fr .85fr; gap: 20px; align-items: start; }.settings-rows { margin-top: 20px; }.settings-rows > div { min-height: 60px; border-bottom: 1px solid var(--color-line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }.settings-rows .field { width: 110px; }.range-inputs { display: flex; align-items: center; gap: 8px; }
 .logo-uploader { display: flex; align-items: center; gap: 14px; background: var(--color-surface-soft); padding: 16px; border-radius: var(--radius-sm); margin-top: 20px; }.logo-uploader strong, .logo-uploader span { display: block; }.logo-uploader span { color: var(--color-muted); font-size: 12px; margin: 4px 0 10px; }
 
-.modal-backdrop { position: fixed; inset: 0; background: rgb(10 12 17 / 58%); z-index: 100; display: grid; place-items: center; padding: 20px; }
-.modal { width: min(520px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); overflow: hidden; }
-.modal-title { font-size: 18px; font-weight: 700; padding: 22px 24px; border-bottom: 1px solid var(--color-line); }
-.modal-body { padding: 24px; overflow-y: auto; }.modal-actions { padding: 16px 24px; background: var(--color-surface-soft); display: flex; justify-content: flex-end; gap: 10px; }
+/* Modales de vidrio: el fondo se desenfoca (.modal-scrim) y el panel es translúcido con el borde
+   iluminado. El panel no refracta (no usa <Glass>): recalcular la refracción de un panel tan grande en
+   cada cuadro trababa las animaciones de adentro. La refracción queda en los selectores e interruptores.
+   El panel tampoco lleva backdrop-filter: si lo tuviera, la lente de los selectores solo "vería" el panel
+   y no la página, y se pondría gris oscuro al moverse. */
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; }
+.modal-scrim { position: absolute; inset: 0; background: rgb(10 12 17 / 30%); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); animation: modal-scrim-in .22s ease-out; }
+.modal { position: relative; width: min(520px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; border-radius: var(--radius-lg); overflow: hidden; color: var(--color-text); background: linear-gradient(160deg, rgb(255 255 255 / 18%), transparent 45%), color-mix(in srgb, var(--color-surface) 40%, transparent); animation: modal-in .2s ease-out; }
+.modal { box-shadow: 0 24px 70px rgb(14 18 27 / 26%), inset 0 0 0 1.5px rgb(255 255 255 / 45%), inset 0 2px 1px rgb(255 255 255 / 55%), inset 3px 10px 40px rgb(0 0 0 / 7%), inset -3px -10px 40px rgb(255 255 255 / 22%); }
+.modal-title { font-size: 18px; font-weight: 700; padding: 22px 24px; border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent); }
+.modal-body { padding: 24px; overflow-y: auto; }.modal-actions { padding: 16px 24px; background: color-mix(in srgb, var(--color-surface-soft) 45%, transparent); border-top: 1px solid color-mix(in srgb, var(--color-line) 50%, transparent); display: flex; justify-content: flex-end; gap: 10px; }
+@keyframes modal-scrim-in { from { opacity: 0; } }
+@keyframes modal-in { from { opacity: 0; transform: scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .modal, .modal-scrim { animation: none; } }
 .confirm-box { background: var(--color-surface-soft); border-radius: var(--radius-sm); padding: 6px 14px; }.confirm-box > div { display: flex; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--color-line); }.confirm-box > div:last-child { border: 0; }.confirm-box span { color: var(--color-muted); font-size: 13px; }.modal-hint { color: var(--color-muted); font-size: 13px; margin-top: 15px; }
 .warning-box { display: flex; gap: 12px; align-items: center; color: var(--color-danger); background: var(--color-danger-soft); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
 
@@ -433,7 +444,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 
 /* ── workshop tabs ────────────────────────────────────────────────────────── */
 .workshop-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.workshop-tabs { display: flex; border: 1px solid var(--color-line); border-radius: var(--radius-sm); overflow: hidden; }
+.workshop-tabs { display: flex; }
 .workshop-tab { border: 0; background: var(--color-surface); color: var(--color-muted); padding: 9px 18px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: .15s; }
 .workshop-tab + .workshop-tab { border-left: 1px solid var(--color-line); }
 .workshop-tab.active { background: var(--color-sidebar); color: white; }
@@ -493,13 +504,12 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 .staff-card .person-toggle { flex: none; align-self: flex-start; font-size: 12px; }
 .staff-card.is-inactive .staff-avatar, .staff-card.is-inactive .staff-role { background: var(--color-neutral-soft); color: var(--color-neutral); }
 .staff-card.is-inactive .staff-identity strong, .staff-card.is-inactive .staff-phone { color: var(--color-muted); }
-.person-toggle { border: 1px solid var(--color-line); background: var(--color-surface); border-radius: var(--radius-sm); padding: 5px 10px; display: flex; align-items: center; gap: 7px; font: inherit; font-size: 12px; font-weight: 600; color: var(--color-muted); cursor: pointer; transition: .15s; }
-.person-toggle span:first-child { width: 28px; height: 16px; border-radius: 99px; background: var(--color-toggle-off); padding: 2px; display: flex; transition: .2s; }
-.person-toggle span:first-child::after { content: ""; width: 12px; height: 12px; border-radius: 50%; background: white; box-shadow: 0 1px 3px rgb(0 0 0 / 20%); transition: .2s; display: block; }
-.person-toggle.on { border-color: var(--color-success); }
-.person-toggle.on span:first-child { background: var(--color-success); }
-.person-toggle.on span:first-child::after { transform: translateX(12px); }
+/* Interruptor Activo/Inactivo: Switch de liquid glass (glisse) con su etiqueta. */
+.person-toggle { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 600; color: var(--color-muted); cursor: pointer; user-select: none; }
+.person-toggle .lg-switch { --lg-scale: .32; --lg-on: var(--color-success); }
+.person-toggle .lg-switch:disabled { opacity: 1; cursor: progress; }
 .person-toggle.on .toggle-label { color: var(--color-success); }
+.person-toggle .toggle-label { min-width: 52px; } /* mismo ancho para Activo/Inactivo: el interruptor no se corre */
 
 @media (max-width: 1100px) {
   .kpi-grid { grid-template-columns: repeat(3, 1fr); }
@@ -552,8 +562,7 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 [data-dark] .workshop-tab.active .tab-count { background: rgb(0 0 0 / 22%); }
 [data-dark] .payment-totals .total-card { background: var(--color-surface-soft); border-color: var(--color-line); }
 [data-dark] .step-dot { background: var(--color-surface); }
-[data-dark] .person-toggle { background: var(--color-surface-soft); }
-[data-dark] .person-toggle span:first-child::after { background: var(--color-text); }
+[data-dark] .person-toggle .lg-switch { --lg-track: rgb(235 235 245 / 22%); }
 [data-dark] .cell-input { background: var(--color-surface-soft); color: var(--color-text); border-color: var(--color-line); }
 [data-dark] .items-table { border-color: var(--color-line); }
 [data-dark] .items-table th { background: var(--color-surface-soft); }
@@ -570,7 +579,23 @@ body:has(.app-shell[data-dark]) { background: #111316; }
   color: var(--color-text);
   color-scheme: light;
 }
-[data-dark] .modal { background: var(--color-surface); border-color: var(--color-line); }
+[data-dark] .modal { background: linear-gradient(160deg, rgb(255 255 255 / 6%), transparent 45%), color-mix(in srgb, var(--color-surface) 50%, transparent); }
+[data-dark] .modal { box-shadow: 0 24px 70px rgb(0 0 0 / 50%), inset 0 0 0 1px rgb(255 255 255 / 14%), inset 0 2px 1px rgb(255 255 255 / 18%), inset 3px 10px 40px rgb(0 0 0 / 25%), inset -3px -10px 40px rgb(255 255 255 / 6%); }
+[data-dark] .modal-scrim { background: rgb(0 0 0 / 45%); }
+
+/* ── liquid glass (glisse) ─────────────────────────────────────────────────── */
+/* Colores de glisse según el tema de la app (data-dark), no el del sistema operativo. */
+.app-shell { --lg-foreground: rgb(0 0 0 / .88); --lg-muted: rgb(60 60 67 / .6); --lg-glass: rgb(255 255 255 / .6); --lg-edge: rgb(0 0 0 / .08); --lg-drop: rgb(0 0 0 / .06); --lg-lens: rgb(0 0 0 / .03); --lg-lens-drop: rgb(0 0 0 / .11); --lg-segment-track: rgb(118 118 128 / .12); --lg-segment-thumb: rgb(255 255 255); --lg-segment-lens: rgb(0 0 0 / .03); --lg-track: rgb(59 59 66 / .3); --lg-lens-shine: -1.5; --lg-rim-shine: .3; }
+.app-shell[data-dark] { --lg-foreground: rgb(255 255 255); --lg-muted: rgb(235 235 245 / .6); --lg-glass: rgb(40 40 40 / .62); --lg-edge: rgb(255 255 255 / .08); --lg-drop: transparent; --lg-lens: rgb(255 255 255 / .055); --lg-lens-drop: transparent; --lg-segment-track: rgb(255 255 255 / .07); --lg-segment-thumb: rgb(235 235 245 / .26); --lg-segment-lens: transparent; --lg-track: rgb(235 235 245 / .22); --lg-lens-shine: 1; --lg-rim-shine: .13; }
+
+/* Selector de opciones (Segmented): ocupa el ancho disponible; las pestañas las mide Segmented.tsx. */
+.segmented-wrap { display: flex; min-width: 0; }
+.app-segmented { --lg-tab-height: 38px; --lg-segment-label: var(--color-text); }
+.app-segmented :is(.lg-tab, .lg-tab-copy) { font-size: 14.5px; }
+.app-segmented :is(.lg-tab, .lg-tab-copy)[data-selected] { font-weight: 650; }
+.segmented-label { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.app-segmented .tab-count { background: rgb(var(--color-primary-rgb) / 14%); color: var(--color-primary-dark); }
+[data-dark] .app-segmented .tab-count { background: rgb(var(--color-primary-rgb) / 24%); color: #ffb39e; }
 [data-dark] .modal-title { border-color: var(--color-line); }
 [data-dark] .modal-actions { border-color: var(--color-line); }
 [data-dark] .warning-box { background: var(--color-danger-soft); color: var(--color-text); }
@@ -679,7 +704,7 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .period-stepper { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .period-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .period-row > .field { width: 160px; }
-.report-filters > .field { flex: none; }
+.report-filters > .field { flex: 0 1 200px; min-width: 140px; } /* los filtros se angostan antes de mandar "Comparar" a otra línea */
 .period-row .period-stepper, .period-row .period-range-row { margin-top: 0; }
 .period-row .period-stepper { min-height: 42px; }
 .period-row .period-range-row { flex: 1; min-width: 300px; max-width: 360px; }

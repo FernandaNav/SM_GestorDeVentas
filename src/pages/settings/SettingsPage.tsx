@@ -5,7 +5,7 @@ import { categoryCommissionSchema, categoryCreateSchema, settingsInputSchema } f
 import { categoriesApi } from "@/api/categories";
 import { ApiError } from "@/api/client";
 import { settingsApi } from "@/api/settings";
-import { Badge, Button, Card, Icon, Select, TextArea, TextInput } from "@/components/ui";
+import { Badge, Button, Card, GlassToggle, Icon, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import logo from "@/imports/solomotos-logo.png";
 import { issuesToErrors } from "@/lib/validation";
@@ -237,16 +237,13 @@ export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSet
                     onChange={(value) => setRates({ ...rates, [category.id]: value })}
                     error={rateErrors[category.id]}
                   />
-                  <button
-                    type="button"
-                    className={`person-toggle ${category.isActive ? "on" : ""}`}
-                    onClick={() => handleToggleCategory(category.id, !category.isActive)}
+                  <GlassToggle
+                    checked={category.isActive}
+                    onChange={(next) => handleToggleCategory(category.id, next)}
                     disabled={togglingId === category.id}
+                    label={category.isActive ? "Activa" : "Inactiva"}
                     title={category.isActive ? "Activa: haz clic para desactivarla" : "Inactiva: haz clic para activarla"}
-                  >
-                    <span />
-                    <span className="toggle-label">{category.isActive ? "Activa" : "Inactiva"}</span>
-                  </button>
+                  />
                 </div>
               </div>
             ))}

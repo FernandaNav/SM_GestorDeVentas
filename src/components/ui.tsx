@@ -1,5 +1,6 @@
 import { type ChangeEvent, type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Switch } from "glisse";
 
 export type IconName =
   | "home"
@@ -320,7 +321,19 @@ export function TextArea({ label, value, placeholder, onChange }: { label?: stri
 }
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <button type="button" className="toggle-row" onClick={() => onChange(!checked)}><span className={`toggle ${checked ? "is-on" : ""}`}><span /></span><span>{label}</span></button>;
+  return <label className="toggle-row"><Switch checked={checked} onCheckedChange={onChange} /><span>{label}</span></label>;
+}
+
+/** Interruptor de liquid glass (glisse) con su etiqueta. Se mueve al instante y vuelve atrás si onChange falla. */
+export function GlassToggle({ checked, onChange, label, title, disabled = false }: { checked: boolean; onChange: (checked: boolean) => void | Promise<void>; label: string; title?: string; disabled?: boolean }) {
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  useEffect(() => setOptimistic(null), [checked]);
+  const shown = optimistic ?? checked;
+  const handleChange = (next: boolean) => {
+    setOptimistic(next);
+    Promise.resolve(onChange(next)).finally(() => setOptimistic(null));
+  };
+  return <label className={`person-toggle ${shown ? "on" : ""}`} title={title}><Switch checked={shown} onCheckedChange={handleChange} disabled={disabled} /><span className="toggle-label">{label}</span></label>;
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "success" | "neutral" | "danger" | "warning" | "info" }) {
@@ -338,5 +351,5 @@ export function FormError({ message }: { message: string }) {
 
 export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean }) {
   if (!open) return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-scrim" aria-hidden="true" /><div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
 }
