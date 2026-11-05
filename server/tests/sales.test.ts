@@ -713,6 +713,26 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("dashboard", () => {
+    it("responde al administrador y no al empleado", async () => {
+      const { status, data } = await admin("GET", "/reports/dashboard");
+      assert.equal(status, 200);
+      assert.ok(data.monthSales.count > 0);
+      assert.equal((await employee("GET", "/reports/dashboard")).status, 403);
+    });
+
+    it("varias pantallas a la vez no pasan del máximo de conexiones", async () => {
+      const { MAX_DB_CONNECTIONS } = await import("../src/db/pool");
+      let peak = 0;
+      const timer = setInterval(() => (peak = Math.max(peak, pool.totalCount)), 1);
+      const responses = await Promise.all(Array.from({ length: 6 }, () => admin("GET", "/reports/dashboard")));
+      clearInterval(timer);
+
+      assert.ok(responses.every((response) => response.status === 200));
+      assert.ok(peak > 0 && peak <= MAX_DB_CONNECTIONS, `llegó a ${peak} conexiones`);
+    });
+  });
+
   describe("comisiones paginadas", () => {
     let today: string;
     const itemsRoute = (query: string) => `/commissions/items?from=${today}&to=${today}${query}`;
