@@ -8,23 +8,12 @@ import { settingsApi } from "@/api/settings";
 import { Badge, Button, Card, Icon, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import logo from "@/imports/solomotos-logo.png";
-import { type Accent, ACCENTS } from "@/layout/theme";
 import { issuesToErrors } from "@/lib/validation";
 
 type Errors = Record<string, string>;
 type Status = { ok?: string; error?: string };
 
-export default function SettingsPage({
-  dark,
-  onSetDark,
-  accent,
-  onSetAccent,
-}: {
-  dark: boolean;
-  onSetDark: (d: boolean) => void;
-  accent: Accent;
-  onSetAccent: (a: Accent) => void;
-}) {
+export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSetDark: (d: boolean) => void }) {
   // Sin recarga automática: si no, lo que se está escribiendo se reemplazaría cada 10 s
   const { data: settings, refetch: refetchSettings } = useApiQuery("settings", settingsApi.get, { poll: false });
   const { data: categoriesData, refetch: refetchCategories } = useApiQuery("settings:categories", categoriesApi.list, {
@@ -372,30 +361,6 @@ export default function SettingsPage({
                 <span>Oscuro</span>
               </div>
             </button>
-          </div>
-          <div className="field-label" style={{ margin: "1.5rem 0 0.35rem" }}>
-            Color principal
-          </div>
-          <div className="muted small" style={{ marginBottom: "0.9rem" }}>
-            Se aplica a botones, menú, gráficas y al inicio de sesión.
-          </div>
-          <div className="accent-selector">
-            {ACCENTS.map((a) => (
-              <button
-                type="button"
-                key={a.id}
-                className={`accent-option${accent === a.id ? " active" : ""}`}
-                onClick={() => onSetAccent(a.id)}
-              >
-                <span className="accent-swatch" style={{ background: a.swatch }}>
-                  {accent === a.id && <Icon name="check" size="sm" />}
-                </span>
-                <span>
-                  <span>{a.label}</span>
-                  <small>{a.note}</small>
-                </span>
-              </button>
-            ))}
           </div>
         </Card>
       </div>

@@ -69,9 +69,16 @@ export default function StaffPage() {
         </div>
       </div>
 
+      {/* Dos grupos separados y con título, para que no se confundan los dos "Todos" */}
       <div className="personal-filters">
-        <Segmented options={Object.keys(TYPE_FILTERS)} value={typeFilter} onChange={setTypeFilter} />
-        <Segmented options={Object.keys(STATUS_FILTERS)} value={statusFilter} onChange={setStatusFilter} />
+        <div className="filter-group" role="group" aria-label="Tipo de personal">
+          <span className="field-label">Tipo de personal</span>
+          <Segmented options={Object.keys(TYPE_FILTERS)} value={typeFilter} onChange={setTypeFilter} />
+        </div>
+        <div className="filter-group" role="group" aria-label="Estado">
+          <span className="field-label">Estado</span>
+          <Segmented options={Object.keys(STATUS_FILTERS)} value={statusFilter} onChange={setStatusFilter} />
+        </div>
       </div>
 
       {(error || actionError) && <div className="cf-warning">{actionError ?? error?.message}</div>}

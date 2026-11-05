@@ -4,7 +4,6 @@ import type { SeriesPoint, StatsBucket, StatsFilters, StatsPeriod } from "@share
 import { reportsApi, toApiDay } from "@/api/reports";
 import { useCatalog } from "@/catalog/CatalogContext";
 import KpiCard from "@/components/KpiCard";
-import Segmented from "@/components/Segmented";
 import {
   type DateRange,
   DateRangePicker,
@@ -74,9 +73,9 @@ export default function StatsPage() {
   return (
     <div className="screen-stack">
       <Card className="report-filters">
-        <div>
-          <div className="field-label">Período</div>
-          <Segmented
+        <div className="period-row">
+          <Select
+            label="Período"
             options={["Diario", "Semanal", "Mensual", "Anual", "Personalizado"]}
             value={granularity}
             onChange={(value) => setGranularity(value as PeriodOption)}
