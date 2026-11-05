@@ -4,12 +4,13 @@ import type { StaffInput, StaffMember } from "@shared/schemas/staff";
 import { ApiError } from "@/api/client";
 import { staffApi } from "@/api/staff";
 import Segmented from "@/components/Segmented";
-import { Badge, Button, Card, Icon, IconButton } from "@/components/ui";
+import { Button, Card, Icon } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { formatPhone } from "@/lib/phone";
 import StaffFormModal from "./StaffFormModal";
 
 const TYPE_FILTERS: Record<string, StaffType | undefined> = { Todos: undefined, Vendedores: "Vendedor", Mecánicos: "Mecánico" };
-const STATUS_FILTERS: Record<string, boolean | undefined> = { Activos: true, Inactivos: false, Todos: undefined };
+const STATUS_FILTERS: Record<string, boolean | undefined> = { Todos: undefined, Activos: true, Inactivos: false };
 
 const initialsOf = (fullName: string) =>
   fullName
@@ -61,14 +62,6 @@ export default function StaffPage() {
         </Button>
       </div>
 
-      <div className="info-banner">
-        <Icon name="users" />
-        <div>
-          <strong>Sin cuentas de acceso</strong>
-          <span>El personal no tiene cuentas de acceso al sistema. Los vendedores se asignan a ventas y los mecánicos a órdenes de taller.</span>
-        </div>
-      </div>
-
       {/* Dos grupos separados y con título, para que no se confundan los dos "Todos" */}
       <div className="personal-filters">
         <div className="filter-group" role="group" aria-label="Tipo de personal">
@@ -95,29 +88,39 @@ export default function StaffPage() {
         </Card>
       )}
 
-      <div className="seller-grid">
-        {staff.map((member) => (
-          <Card className="seller-card" key={member.id}>
-            <div className={`seller-avatar ${member.type === "Mecánico" ? "mech" : ""}`}>{initialsOf(member.fullName)}</div>
-            <div className="seller-info">
-              <strong>{member.fullName}</strong>
-              <span>{member.phone ?? "Sin teléfono"}</span>
-              <Badge tone={member.type === "Vendedor" ? "info" : "neutral"}>{member.type}</Badge>
-            </div>
-            <div className="seller-right">
-              <button
-                type="button"
-                className={`person-toggle ${member.isActive ? "on" : ""}`}
-                onClick={() => handleToggleActive(member)}
-                title={member.isActive ? "Activo — click para desactivar" : "Inactivo — click para activar"}
-              >
-                <span />
-                <span className="toggle-label">{member.isActive ? "Activo" : "Inactivo"}</span>
-              </button>
-              <IconButton icon="edit" label="Editar" onClick={() => setEditing(member)} />
-            </div>
-          </Card>
-        ))}
+      <div className="staff-grid">
+        {staff.map((member) => {
+          const roleClass = member.type === "Mecánico" ? "is-mechanic" : "is-seller";
+          return (
+            <Card className={`staff-card ${member.isActive ? "" : "is-inactive"}`} key={member.id}>
+              <div className="staff-card-main">
+                <div className={`staff-avatar ${roleClass}`}>{initialsOf(member.fullName)}</div>
+                <div className="staff-identity">
+                  <strong title={member.fullName}>{member.fullName}</strong>
+                  <span className={`staff-role ${roleClass}`}>{member.type}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`person-toggle ${member.isActive ? "on" : ""}`}
+                  onClick={() => handleToggleActive(member)}
+                  title={member.isActive ? "Activo: haz clic para desactivar" : "Inactivo: haz clic para activar"}
+                >
+                  <span />
+                  <span className="toggle-label">{member.isActive ? "Activo" : "Inactivo"}</span>
+                </button>
+              </div>
+              <div className="staff-card-footer">
+                <div className={`staff-phone ${member.phone ? "" : "is-empty"}`}>
+                  <Icon name="phone" size="sm" />
+                  <span>{member.phone ? formatPhone(member.phone) : "Sin teléfono"}</span>
+                </div>
+                <Button variant="secondary" icon="edit" onClick={() => setEditing(member)}>
+                  Editar
+                </Button>
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       {editing !== undefined && <StaffFormModal member={editing} onClose={() => setEditing(undefined)} onSave={handleSave} />}

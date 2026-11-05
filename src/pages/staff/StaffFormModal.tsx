@@ -3,6 +3,7 @@ import type { StaffType } from "@shared/constants";
 import { staffInputSchema, type StaffInput, type StaffMember } from "@shared/schemas/staff";
 import { ApiError } from "@/api/client";
 import { Modal, TextInput, UnstyledButton } from "@/components/ui";
+import { formatPhone, maskPhoneInput } from "@/lib/phone";
 import { issuesToErrors } from "@/lib/validation";
 
 type Props = {
@@ -17,7 +18,7 @@ type Props = {
 export default function StaffFormModal({ member, onClose, onSave }: Props) {
   const [fullName, setFullName] = useState(member?.fullName ?? "");
   const [type, setType] = useState<StaffType>(member?.type ?? "Vendedor");
-  const [phone, setPhone] = useState(member?.phone ?? "");
+  const [phone, setPhone] = useState(formatPhone(member?.phone ?? ""));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -58,7 +59,14 @@ export default function StaffFormModal({ member, onClose, onSave }: Props) {
             ))}
           </div>
         </div>
-        <TextInput label="Teléfono (opcional)" placeholder="Ej. 5512-3344" value={phone} onChange={setPhone} error={errors.phone} />
+        <TextInput
+          label="Teléfono (opcional)"
+          icon="phone"
+          placeholder="Ej. 5512 3344"
+          value={phone}
+          onChange={(value) => setPhone(maskPhoneInput(value))}
+          error={errors.phone}
+        />
         {errors._form && <span className="field-error">{errors._form}</span>}
       </div>
     </Modal>
