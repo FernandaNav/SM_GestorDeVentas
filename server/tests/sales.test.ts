@@ -713,6 +713,35 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("dashboard", () => {
+    it("responde al administrador y no al empleado", async () => {
+      const { status, data } = await admin("GET", "/reports/dashboard");
+      assert.equal(status, 200);
+      assert.ok(data.monthSales.count > 0);
+      assert.equal((await employee("GET", "/reports/dashboard")).status, 403);
+    });
+
+    it("el resumen de taller cuenta las órdenes por estado", async () => {
+      const before = (await admin("GET", "/reports/dashboard")).data.workshop;
+      await admin("POST", "/workshop", { clientName: "Resumen", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+      const after = (await admin("GET", "/reports/dashboard")).data.workshop;
+
+      assert.equal(after.received, before.received + 1);
+      assert.equal(after.deliveredToday, before.deliveredToday);
+    });
+
+    it("varias pantallas a la vez no pasan del máximo de conexiones", async () => {
+      const { MAX_DB_CONNECTIONS } = await import("../src/db/pool");
+      let peak = 0;
+      const timer = setInterval(() => (peak = Math.max(peak, pool.totalCount)), 1);
+      const responses = await Promise.all(Array.from({ length: 6 }, () => admin("GET", "/reports/dashboard")));
+      clearInterval(timer);
+
+      assert.ok(responses.every((response) => response.status === 200));
+      assert.ok(peak > 0 && peak <= MAX_DB_CONNECTIONS, `llegó a ${peak} conexiones`);
+    });
+  });
+
   describe("comisiones paginadas", () => {
     let today: string;
     const itemsRoute = (query: string) => `/commissions/items?from=${today}&to=${today}${query}`;
@@ -842,6 +871,39 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
       assert.equal((await admin("POST", `/workshop/${order.id}/checkout`, { sellerId, paymentMethod: "Efectivo", isInvoiced: false })).status, 201);
       assert.equal((await admin("PATCH", `/settings/categories/${category.id}/active`, { isActive: false })).status, 200);
+    });
+
+    it("una orden reabierta se puede volver a cobrar aunque su categoría ya esté inactiva", async () => {
+      const { data: category } = await admin("POST", "/settings/categories", { name: "Para reabrir", defaultCommissionRate: 4 });
+      const { data: order } = await admin("POST", "/workshop", { clientName: "Orden reabierta", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Pieza", categoryId: category.id, quantity: 1, unitPrice: 100 });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "En reparación" });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
+      const charge = () => employee("POST", `/workshop/${order.id}/checkout`, { sellerId, paymentMethod: "Efectivo", isInvoiced: false });
+
+      const first = await charge();
+      assert.equal(first.status, 201);
+      assert.equal((await admin("PATCH", `/settings/categories/${category.id}/active`, { isActive: false })).status, 200);
+      assert.equal((await admin("DELETE", `/sales/${first.data.sale.id}`)).status, 204);
+
+      const second = await charge();
+      assert.equal(second.status, 201, second.data.error);
+      assert.equal(second.data.order.status, "Entregada");
+      const { data: sale } = await admin("GET", `/sales/${second.data.sale.id}`);
+      assert.equal(sale.items[0].categoryId, category.id);
+      assert.equal(sale.items[0].commissionRate, 4);
+      assert.equal(sale.items[0].origin, "taller_repuesto");
+    });
+
+    it("la categoría inactiva se sigue pudiendo consultar en historial y estadísticas", async () => {
+      const { data: category } = await admin("POST", "/settings/categories", { name: "Para filtrar", defaultCommissionRate: null });
+      await admin("POST", "/sales", { ...counterSale(), items: [{ description: "Vendida antes", categoryId: category.id, quantity: 1, unitPrice: 70 }] });
+      await admin("PATCH", `/settings/categories/${category.id}/active`, { isActive: false });
+
+      const history = await admin("GET", `/sales?from=2020-01-01&to=2099-12-31&categoryId=${category.id}`);
+      assert.deepEqual(history.data.items.map((sale: any) => sale.itemsSummary), ["Vendida antes"]);
+      const stats = await admin("GET", `/reports/stats?from=2020-01-01&to=2099-12-31&categoryId=${category.id}`);
+      assert.equal(stats.data.current.totals.total, 70);
     });
   });
 

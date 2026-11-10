@@ -2,9 +2,7 @@ import { useState } from "react";
 import { PAYMENT_METHODS, type PaymentMethod, type SaleItemOrigin } from "@shared/constants";
 import type { SeriesPoint, StatsBucket, StatsFilters, StatsPeriod } from "@shared/schemas/reports";
 import { reportsApi, toApiDay } from "@/api/reports";
-import { useCatalog } from "@/catalog/CatalogContext";
 import KpiCard from "@/components/KpiCard";
-import Segmented from "@/components/Segmented";
 import {
   type DateRange,
   DateRangePicker,
@@ -20,11 +18,13 @@ import {
 } from "@/components/dates";
 import { Card, Select, Toggle } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useCategoryFilterOptions } from "@/hooks/useCategoryFilterOptions";
 import { useSellerFilterOptions } from "@/hooks/useSellerFilterOptions";
 import { formatQuetzales } from "@/lib/format";
 import { BarList, formatChange, LineChart, LineLegend, type LineSeries, percentChange, StackBar } from "./charts";
 import EmptyState from "./EmptyState";
 import { bucketLabel, bucketTick } from "./reportFormat";
+import Segmented from "@/components/Segmented";
 
 const TABS = ["Ventas", "Vendedores", "Categorías", "Ventas vs. gastos", "Ventas vs. taller"] as const;
 type Tab = (typeof TABS)[number];
@@ -40,7 +40,7 @@ const ORIGIN_LABELS: Record<SaleItemOrigin, string> = {
 // Estadísticas (RF 4.1 a 4.5). La pantalla solo arma el período y los filtros; las sumas
 // las hace el servidor. Comparar pide el período anterior en la misma consulta.
 export default function StatsPage() {
-  const { categories } = useCatalog();
+  const categoryOptions = useCategoryFilterOptions();
   const sellerOptions = useSellerFilterOptions();
   const [activeTab, setActiveTab] = useState<Tab>("Ventas");
   const [granularity, setGranularity] = useState<PeriodOption>("Mensual");
@@ -65,7 +65,7 @@ export default function StatsPage() {
     to: toApiDay(range.end),
     paymentMethod: payment === ALL ? undefined : (payment as PaymentMethod),
     sellerId: sellerOptions.find((s) => s.label === sellerName)?.id,
-    categoryId: categories.find((c) => c.name === categoryName)?.id,
+    categoryId: categoryOptions.find((c) => c.label === categoryName)?.id,
     ...(compare && { compareFrom: toApiDay(previous.start), compareTo: toApiDay(previous.end) }),
   };
   const { data, loading, error } = useApiQuery(`reports:stats:${JSON.stringify(filters)}`, () => reportsApi.stats(filters));
@@ -74,9 +74,9 @@ export default function StatsPage() {
   return (
     <div className="screen-stack">
       <Card className="report-filters">
-        <div>
-          <div className="field-label">Período</div>
-          <Segmented
+        <div className="period-row">
+          <Select
+            label="Período"
             options={["Diario", "Semanal", "Mensual", "Anual", "Personalizado"]}
             value={granularity}
             onChange={(value) => setGranularity(value as PeriodOption)}
@@ -98,17 +98,11 @@ export default function StatsPage() {
         </div>
         <Select label="Pago" value={payment} options={[ALL, ...PAYMENT_METHODS]} onChange={setPayment} />
         <Select label="Vendedor" value={sellerName} options={[ALL, ...sellerOptions.map((s) => s.label)]} onChange={setSellerName} />
-        <Select label="Categoría" value={categoryName} options={[ALL, ...categories.map((c) => c.name)]} onChange={setCategoryName} />
+        <Select label="Categoría" value={categoryName} options={[ALL, ...categoryOptions.map((c) => c.label)]} onChange={setCategoryName} />
         <Toggle checked={compare} onChange={setCompare} label={`Comparar con ${previousLabel}`} />
       </Card>
 
-      <div className="stats-tabs" role="tablist">
-        {TABS.map((tab) => (
-          <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={`stats-tab${activeTab === tab ? " active" : ""}`} onClick={() => setActiveTab(tab)}>
-            {tab}
-          </button>
-        ))}
-      </div>
+      <Segmented options={TABS} value={activeTab} onChange={(value) => setActiveTab(value as Tab)} ariaLabel="Tipo de estadística" />
 
       {error && <div className="cf-warning">{error.message}</div>}
       {!data && loading && <Card className="rpt-loading">Calculando estadísticas…</Card>}
@@ -166,7 +160,7 @@ function SalesTab({ current, previous, bucket, label, previousLabel }: TabProps 
   return (
     <div className="screen-stack">
       <div className="kpi-grid">
-        <KpiCard icon="cash" label="Total vendido" value={formatQuetzales(t.total)} foot={foot(t.total, p?.total, `${t.salesCount} transacciones`)} tone="orange" />
+        <KpiCard icon="cash" label="Total vendido" value={formatQuetzales(t.total)} foot={foot(t.total, p?.total, `${t.salesCount} ${t.salesCount === 1 ? "transacción" : "transacciones"}`)} tone="orange" />
         <KpiCard icon="trending" label="Ticket promedio" value={formatQuetzales(t.averageTicket)} foot={foot(t.averageTicket, p?.averageTicket, "Promedio por venta")} tone="blue" />
         <KpiCard icon="history" label="Transacciones" value={String(t.salesCount)} foot={foot(t.salesCount, p?.salesCount, "Ventas realizadas")} tone="purple" />
         <KpiCard icon="file" label="Ventas facturadas" value={String(t.invoicedCount)} foot={foot(t.invoicedCount, p?.invoicedCount, `${t.salesCount - t.invoicedCount} sin factura`)} tone="green" />
@@ -174,7 +168,7 @@ function SalesTab({ current, previous, bucket, label, previousLabel }: TabProps 
           icon="coins"
           label="Comisiones"
           value={formatQuetzales(t.commissionTotal)}
-          foot={t.pendingItems > 0 ? `${t.pendingItems} artículos pendientes de asignar` : "Todas asignadas"}
+          foot={t.pendingItems > 0 ? `${t.pendingItems} ${t.pendingItems === 1 ? "artículo pendiente" : "artículos pendientes"} de asignar` : "Todas asignadas"}
           tone="red"
         />
       </div>

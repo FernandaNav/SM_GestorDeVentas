@@ -3,11 +3,11 @@ import type { PaymentMethod, Role } from "@shared/constants";
 import type { SaleDetail, SaleFilters, SaleSummary } from "@shared/schemas/sales";
 import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
-import { useCatalog } from "@/catalog/CatalogContext";
 import Pagination from "@/components/Pagination";
 import { type DateRange, DateRangePicker, presetRange } from "@/components/dates";
 import { Badge, Button, Card, Icon, IconButton, Modal, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useCategoryFilterOptions } from "@/hooks/useCategoryFilterOptions";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useSellerFilterOptions } from "@/hooks/useSellerFilterOptions";
 import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
@@ -19,7 +19,7 @@ const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
 
 export default function SalesHistory({ role }: { role: Role }) {
-  const { categories, categoryNames } = useCatalog();
+  const categoryOptions = useCategoryFilterOptions();
   const sellerOptions = useSellerFilterOptions();
   const isAdmin = role === "Administrador";
 
@@ -69,7 +69,7 @@ export default function SalesHistory({ role }: { role: Role }) {
         if (found) filters.sellerId = found.id;
       }
       if (filterCategory !== "Todas las categorías") {
-        const found = categories.find((c) => c.name === filterCategory);
+        const found = categoryOptions.find((c) => c.label === filterCategory);
         if (found) filters.categoryId = found.id;
       }
       if (filterPayment !== "Cualquier pago") {
@@ -98,7 +98,7 @@ export default function SalesHistory({ role }: { role: Role }) {
     filterPendingCommission,
     debouncedSearch,
     sellerOptions,
-    categories,
+    categoryOptions,
   ]);
 
   const queryKey = useMemo(() => JSON.stringify(activeFilters), [activeFilters]);
@@ -156,15 +156,14 @@ export default function SalesHistory({ role }: { role: Role }) {
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">{isAdmin ? "Historial de ventas" : "Ventas de hoy"}</div>
-          <div className="muted">
-            {isAdmin
-              ? "Consulta, filtra y administra las ventas registradas con bitácora de auditoría."
-              : "Ventas registradas durante el turno de hoy."}
+      <div className={`hero-row ${isAdmin ? "hero-actions" : ""}`}>
+        {/* El Empleado solo ve lo de hoy: se lo aclara aunque la barra superior diga "Historial de ventas" */}
+        {!isAdmin && (
+          <div>
+            <div className="section-title">Ventas de hoy</div>
+            <div className="muted">Ventas registradas durante el turno de hoy.</div>
           </div>
-        </div>
+        )}
         <div className="row-actions" style={{ alignItems: "center" }}>
         {isAdmin && (
           <Button variant="secondary" icon="trash" onClick={() => setShowDeleted(true)}>
@@ -248,7 +247,7 @@ export default function SalesHistory({ role }: { role: Role }) {
           />
           <Select
             value={filterCategory}
-            options={["Todas las categorías", ...categoryNames]}
+            options={["Todas las categorías", ...categoryOptions.map((c) => c.label)]}
             onChange={onFilter(setFilterCategory)}
           />
           <Select
@@ -315,15 +314,15 @@ export default function SalesHistory({ role }: { role: Role }) {
                         {new Date(row.soldAt).toLocaleDateString("es-GT")} ·{" "}
                         {SALE_TIME_FORMAT.format(new Date(row.soldAt))}
                       </td>
-                      <td>
+                      <td className="cell-fill" title={row.itemsSummary}>
                         <strong>{row.itemsSummary}</strong>
                         {row.clientName && (
-                          <div style={{ fontSize: "11px", color: "var(--color-muted)" }}>
+                          <div style={{ fontSize: "12px", color: "var(--color-muted)" }}>
                             Cliente: {row.clientName}
                           </div>
                         )}
                       </td>
-                      <td>{row.sellerName}</td>
+                      <td className="cell-name" title={row.sellerName}>{row.sellerName}</td>
                       <td>{row.paymentMethod}</td>
                       <td>
                         <strong>{formatQuetzales(row.total)}</strong>
@@ -426,7 +425,7 @@ export default function SalesHistory({ role }: { role: Role }) {
             onChange={setDeleteReason}
           />
         </div>
-        <div style={{ fontSize: "12px", color: "var(--color-muted)", background: "var(--color-surface-soft)", padding: "10px", borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", gap: "6px" }}>
+        <div style={{ fontSize: "13px", color: "var(--color-muted)", background: "var(--color-surface-soft)", padding: "10px", borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", gap: "6px" }}>
           <Icon name="lock" size="sm" />
           <span>
             Esta acción no se puede deshacer y quedará registrada en la bitácora de auditoría con tu usuario y rol de Administrador. Si la venta salió de una orden de taller, la orden vuelve a "Lista para entregar" para cobrarse de nuevo.

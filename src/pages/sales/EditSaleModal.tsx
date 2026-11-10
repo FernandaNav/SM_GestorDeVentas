@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PaymentMethod, SaleItemOrigin } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, type PaymentMethod, type SaleItemOrigin } from "@shared/constants";
 import { updateSaleSchema, type SaleDetail, type UpdateSaleInput } from "@shared/schemas/sales";
 import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
@@ -45,6 +45,8 @@ export default function EditSaleModal({
   const [taxId, setTaxId] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientAddress, setClientAddress] = useState("");
+  // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
+  const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
   const [items, setItems] = useState<EditableItem[]>([]);
   const [originalCategories, setOriginalCategories] = useState<{ id: number; name: string }[]>([]);
@@ -140,6 +142,7 @@ export default function EditSaleModal({
 
   const total = items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
   const isCF = taxId.trim().toUpperCase() === "CF";
+  const showCfWarning = (isCF || cfRejected) && total >= CF_MAX_INVOICE_TOTAL;
 
   const handleTaxIdTypeChange = (type: "NIT" | "CUI") => {
     setTaxIdType(type);
@@ -251,7 +254,7 @@ export default function EditSaleModal({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--color-line)" }}>
             <div>
               <strong style={{ fontSize: "14px" }}>Factura</strong>
-              <div style={{ fontSize: "12px", color: "var(--color-muted)" }}>¿Esta venta fue facturada?</div>
+              <div style={{ fontSize: "13px", color: "var(--color-muted)" }}>¿Esta venta fue facturada?</div>
             </div>
             <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="Facturada" />
           </div>
@@ -275,13 +278,22 @@ export default function EditSaleModal({
                 </div>
                 <TextInput
                   value={taxId}
-                  onChange={(value) => setTaxId(formatTaxId(taxIdType, value))}
+                  onChange={(value) => {
+                    setCfRejected(false);
+                    setTaxId(formatTaxId(taxIdType, value));
+                  }}
                   placeholder={taxIdType === "NIT" ? "NIT del cliente" : "CUI"}
                 />
                 <button
                   type="button"
                   className="cf-btn"
                   onClick={() => {
+                    // Desde Q2,500 la SAT exige NIT o CUI: no se llena como Consumidor Final, solo se avisa
+                    if (total >= CF_MAX_INVOICE_TOTAL) {
+                      setCfRejected(true);
+                      return;
+                    }
+                    setCfRejected(false);
                     setTaxId("CF");
                     setClientName("Consumidor Final");
                     setClientAddress("Ciudad");
@@ -290,6 +302,12 @@ export default function EditSaleModal({
                   CF
                 </button>
               </div>
+              {showCfWarning && (
+                <div className="cf-warning">
+                  <Icon name="bell" size="sm" />
+                  <span>Para ventas de {formatQuetzales(CF_MAX_INVOICE_TOTAL)} o más la SAT requiere NIT o CUI del comprador; no se puede facturar como Consumidor Final.</span>
+                </div>
+              )}
 
               <TextInput
                 label="Nombre / Razón social"
@@ -309,7 +327,7 @@ export default function EditSaleModal({
           <div>
             <strong style={{ fontSize: "13px" }}>Artículos de la venta</strong>
             <div style={{ overflowX: "auto", marginTop: "8px" }}>
-              <table className="items-table" style={{ width: "100%", fontSize: "12px" }}>
+              <table className="items-table" style={{ width: "100%", fontSize: "13px" }}>
                 <thead>
                   <tr>
                     <th>Descripción</th>
@@ -331,17 +349,13 @@ export default function EditSaleModal({
                         />
                       </td>
                       <td>
-                        <select
-                          className="cell-select"
-                          value={it.categoryId}
-                          onChange={(e) => updateItem(it.id, "categoryId", Number(e.target.value))}
-                        >
-                          {categoryOptions.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                        <Select
+                          compact
+                          ariaLabel="Categoría"
+                          value={String(it.categoryId)}
+                          options={categoryOptions.map((c) => ({ value: String(c.id), label: c.name }))}
+                          onChange={(value) => updateItem(it.id, "categoryId", Number(value))}
+                        />
                       </td>
                       <td>
                         <input
@@ -396,7 +410,7 @@ export default function EditSaleModal({
             <strong style={{ fontSize: "18px", color: "var(--color-primary)" }}>{formatQuetzales(total)}</strong>
           </div>
 
-          <div style={{ fontSize: "11px", color: "var(--color-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{ fontSize: "13px", color: "var(--color-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
             <Icon name="lock" size="sm" />
             <span>Esta edición quedará registrada en la bitácora de auditoría.</span>
           </div>

@@ -7,11 +7,21 @@ pg.types.setTypeParser(pg.types.builtins.NUMERIC, (value) => Number(value));
 // INT8 (bigserial, COUNT) también llega como string.
 pg.types.setTypeParser(pg.types.builtins.INT8, (value) => Number(value));
 
+// El Session pooler de Supabase admite 15 conexiones entre todos los servidores conectados
+// (error EMAXCONNSESSION). Las consultas que no alcanzan conexión esperan en fila, así que
+// un máximo bajo solo las hace esperar un momento; y las inactivas se sueltan rápido para
+// no ocupar lugar entre una recarga automática y la siguiente.
+export const MAX_DB_CONNECTIONS = 4;
+
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   ssl: env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
-  max: 10,
+  max: MAX_DB_CONNECTIONS,
+  idleTimeoutMillis: 5_000,
 });
+
+// Sin esto, que la base cierre una conexión inactiva tumbaría todo el servidor
+pool.on("error", (error) => console.error("Conexión inactiva a la base perdida:", error.message));
 
 /** Cliente o pool: los repositorios aceptan cualquiera para poder usarse dentro de una transacción. */
 export type Queryable = pg.Pool | pg.PoolClient;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PaymentMethod, Role } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, type PaymentMethod, type Role } from "@shared/constants";
 import { createSaleSchema, type CreateSaleInput, type SaleDetail, type SaleItemInput } from "@shared/schemas/sales";
 import { ApiError, errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
@@ -19,15 +19,16 @@ import SaleSuccess from "@/pages/sales/SaleSuccess";
 
 const CHOOSE_SELLER = "Elige el vendedor";
 
+/** Fila inicial: su categoría la llena ItemsTable con las que están activas. */
+const emptyItem = (): SaleItem => ({ id: 1, desc: "", cat: "", qty: 1, price: 0 });
+
 export default function NewSale({ role, onHistory }: { role: Role; onHistory: () => void }) {
-  const { sellers, sellerNames, categories } = useCatalog();
+  const { sellers, sellerNames, categories, defaultCommissions } = useCatalog();
   const isAdmin = role === "Administrador";
   const now = useCurrentDate();
   const saleTimestamp = `${capitalize(SALE_DATE_FORMAT.format(now))} · ${SALE_TIME_FORMAT.format(now)}`;
 
-  const [items, setItems] = useState<SaleItem[]>([
-    { id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" },
-  ]);
+  const [items, setItems] = useState<SaleItem[]>(() => [emptyItem()]);
   const [chosenSeller, setSeller] = useState("");
   // La comisión depende de quién vendió: solo se da por hecho si no hay a quién más elegir
   const seller = chosenSeller || (sellerNames.length === 1 ? sellerNames[0] : "");
@@ -37,6 +38,8 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
   const [clientId, setClientId] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientAddress, setClientAddress] = useState("");
+  // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
+  const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -76,10 +79,10 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
 
   const total = items.reduce((acc, item) => acc + item.qty * item.price, 0);
   const isCF = clientId.trim().toUpperCase() === "CF";
-  const isCfWarning = isInvoiced && isCF && total >= 2500;
+  const isCfWarning = isInvoiced && (isCF || cfRejected) && total >= CF_MAX_INVOICE_TOTAL;
 
   const handleResetSale = () => {
-    setItems([{ id: 1, desc: "", cat: "Accesorio", qty: 1, price: 0, commission: "2.5" }]);
+    setItems([emptyItem()]);
     setSeller("");
     setPaymentMethod("Tarjeta");
     setIsInvoiced(true);
@@ -87,6 +90,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     setClientId("");
     setClientName("");
     setClientAddress("");
+    setCfRejected(false);
     setObservations("");
     setIsConfirmed(false);
     setCreatedSale(null);
@@ -99,6 +103,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     const next = formatTaxId(idType, value);
     if (next === clientId) return;
     clearErrors();
+    setCfRejected(false);
     setClientId(next);
     if (clientLookup.client || isCF) {
       setClientName("");
@@ -115,14 +120,22 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
 
   const handleFillCF = () => {
     clearErrors();
+    // Desde Q2,500 la SAT exige NIT o CUI: no se llena como Consumidor Final, solo se avisa
+    if (total >= CF_MAX_INVOICE_TOTAL) {
+      setCfRejected(true);
+      return;
+    }
+    setCfRejected(false);
     setClientId("CF");
     setClientName("Consumidor Final");
     setClientAddress("Ciudad");
   };
 
+  // Solo es una estimación: la comisión la asigna el servidor con el porcentaje de la categoría.
+  // Las categorías sin porcentaje quedan pendientes y se asignan en Comisiones.
   const totalCommission = isAdmin
     ? items.reduce((acc, item) => {
-        const pct = parseFloat(item.commission);
+        const pct = parseFloat(defaultCommissions[item.cat] ?? "");
         return acc + (isNaN(pct) ? 0 : (item.qty * item.price * pct) / 100);
       }, 0)
     : 0;
@@ -136,14 +149,11 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
 
     const saleItems: SaleItemInput[] = resolvedItems.map((i) => {
       const catObj = categories.find((c) => c.name === i.cat) || categories[0];
-      const parsedComm = parseFloat(i.commission);
-      const commRate = isAdmin ? (isNaN(parsedComm) ? null : parsedComm) : undefined;
       return {
         description: i.desc.trim() || "Artículo",
         categoryId: catObj?.id ?? 1,
         quantity: i.qty,
         unitPrice: i.price,
-        commissionRate: commRate,
       };
     });
 
@@ -268,7 +278,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
               <small>Productos o servicios incluidos en esta venta</small>
             </div>
           </div>
-          <ItemsTable items={items} setItems={onEdit(setItems)} isAdmin={isAdmin} />
+          <ItemsTable items={items} setItems={onEdit(setItems)} />
         </Card>
 
         <Card className="form-card">
@@ -327,7 +337,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
               {isCfWarning && (
                 <div className="cf-warning">
                   <Icon name="bell" size="sm" />
-                  <span>Para ventas de Q2,500.00 o más la SAT requiere NIT o CUI del comprador.</span>
+                  <span>Para ventas de {formatQuetzales(CF_MAX_INVOICE_TOTAL)} o más la SAT requiere NIT o CUI del comprador; no se puede facturar como Consumidor Final.</span>
                 </div>
               )}
 

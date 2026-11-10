@@ -11,6 +11,7 @@ import { formatQuetzales } from "@/lib/format";
 import NewOrderModal from "@/pages/workshop/NewOrderModal";
 import OrderDetail from "@/pages/workshop/OrderDetail";
 import { WORKSHOP_STATUS_TONES } from "@/pages/workshop/workshopStatus";
+import Segmented from "@/components/Segmented";
 
 const HISTORY_PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
@@ -69,11 +70,7 @@ export default function WorkshopPage() {
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">Órdenes de taller</div>
-          <div className="muted">Registra y da seguimiento a los servicios de motocicletas.</div>
-        </div>
+      <div className="hero-row hero-actions">
         <Button icon="plus" onClick={() => setIsNewModalOpen(true)}>
           Nuevo servicio
         </Button>
@@ -103,12 +100,16 @@ export default function WorkshopPage() {
       <Card>
         <div className="workshop-header">
           <div className="workshop-tabs">
-            <button type="button" className={`workshop-tab ${activeTab === "activas" ? "active" : ""}`} onClick={() => setActiveTab("activas")}>
-              Órdenes activas <span className="tab-count">{activeOrders.length}</span>
-            </button>
-            <button type="button" className={`workshop-tab ${activeTab === "historial" ? "active" : ""}`} onClick={() => setActiveTab("historial")}>
-              {isAdmin ? "Historial" : "Entregadas hoy"} <span className="tab-count">{summary?.deliveredTotal ?? 0}</span>
-            </button>
+            <Segmented
+              options={["activas", "historial"]}
+              value={activeTab}
+              onChange={(value) => setActiveTab(value as typeof activeTab)}
+              ariaLabel="Órdenes"
+              labels={[
+                <>Órdenes activas <span className="tab-count">{activeOrders.length}</span></>,
+                <>{isAdmin ? "Historial" : "Entregadas hoy"} <span className="tab-count">{summary?.deliveredTotal ?? 0}</span></>,
+              ]}
+            />
           </div>
           <TextInput placeholder="Buscar por cliente, moto, placa u orden..." icon="search" value={searchQuery} onChange={handleSearch} />
         </div>
@@ -205,11 +206,11 @@ function OrdersTable({ orders, onOpen }: { orders: WorkshopOrderSummary[]; onOpe
           {orders.map((order) => (
             <tr key={order.id} style={{ cursor: "pointer" }} onClick={() => onOpen(order.id)}>
               <td><strong>{formatOrderNumber(order.id)}</strong></td>
-              <td>{order.clientName}</td>
+              <td className="cell-name" title={order.clientName}>{order.clientName}</td>
               <td>{order.clientPhone ?? "—"}</td>
               <td>{order.plate ? `${order.motorcycle} · ${order.plate}` : order.motorcycle}</td>
-              <td>{order.workDescription}</td>
-              <td>{order.mechanicName}</td>
+              <td className="cell-fill" title={order.workDescription}>{order.workDescription}</td>
+              <td className="cell-name" title={order.mechanicName}>{order.mechanicName}</td>
               <td><Badge tone={WORKSHOP_STATUS_TONES[order.status]}>{order.status}</Badge></td>
               <td><OrderCost order={order} /></td>
             </tr>

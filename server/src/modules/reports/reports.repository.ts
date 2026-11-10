@@ -2,6 +2,7 @@ import type { PaymentMethod } from "@shared/constants";
 import type { DateRange } from "@shared/schemas/common";
 import type {
   CategoryBreakdown,
+  DashboardSummary,
   EmployeeHome,
   ExpenseBreakdown,
   OriginBreakdown,
@@ -193,6 +194,19 @@ export async function findSalesSnapshot(
     month: { total: row.month_total, count: row.month_count },
     previousMonth: { total: row.prev_total, count: row.prev_count },
   };
+}
+
+/** Órdenes en cada estado del taller y las que se entregaron hoy. */
+export async function findWorkshopSnapshot(db: Queryable, today: string): Promise<DashboardSummary["workshop"]> {
+  const { rows } = await db.query<DashboardSummary["workshop"]>(
+    `SELECT count(*) FILTER (WHERE status = 'Recibida') AS received,
+            count(*) FILTER (WHERE status = 'En reparación') AS "inRepair",
+            count(*) FILTER (WHERE status = 'Lista para entregar') AS ready,
+            count(*) FILTER (WHERE status = 'Entregada' AND ${betweenBusinessDays("delivered_at", "$1", "$1")}) AS "deliveredToday"
+     FROM workshop_orders`,
+    [today],
+  );
+  return rows[0];
 }
 
 export async function findCommissionSnapshot(

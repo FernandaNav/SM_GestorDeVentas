@@ -211,7 +211,7 @@ export default function ExpensesPage() {
                   {expenses.map((row) => (
                     <tr key={row.id}>
                       <td>{fmtDay(fromIsoDate(row.spentOn))}</td>
-                      <td>
+                      <td className="cell-fill" title={row.description}>
                         <strong>{row.description}</strong>
                       </td>
                       <td>

@@ -172,7 +172,9 @@ export function checkout(
     // Mismas reglas que una venta del mostrador, ya con el total real (p. ej. el límite de CF)
     createSaleSchema.parse(saleInput);
 
-    const sale = await salesService.createSale(saleInput, req, db);
+    // Una orden reabierta (se eliminó su venta) pudo quedar con una categoría que se desactivó después
+    const orderCategoryIds = new Set(saleInput.items.map((item) => item.categoryId));
+    const sale = await salesService.createSale(saleInput, req, db, orderCategoryIds);
     await workshopRepository.markDelivered(db, orderId, sale.id, sale.total);
     await workshopRepository.insertEvent(
       db,

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useCatalog } from "@/catalog/CatalogContext";
 import MoneyInput from "@/components/MoneyInput";
-import { Icon } from "@/components/ui";
+import { Icon, Select } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
 
 /** Una fila del formulario de venta, como se está escribiendo. */
@@ -11,19 +11,16 @@ export type SaleItem = {
   cat: string;
   qty: number;
   price: number;
-  commission: string;
 };
 
 export default function ItemsTable({
   items,
   setItems,
-  isAdmin,
 }: {
   items: SaleItem[];
   setItems: (items: SaleItem[]) => void;
-  isAdmin: boolean;
 }) {
-  const { categoryNames, defaultCommissions } = useCatalog();
+  const { categoryNames } = useCatalog();
   // Accesorio es lo más común en mostrador; si se desactivó, la primera categoría activa
   const defaultCategory = categoryNames.includes("Accesorio") ? "Accesorio" : (categoryNames[0] ?? "");
   const blankItem = (): SaleItem => ({
@@ -32,29 +29,18 @@ export default function ItemsTable({
     cat: defaultCategory,
     qty: 1,
     price: 0,
-    commission: defaultCommissions[defaultCategory] ?? "",
   });
 
-  // Si una categoría del formulario ya no está activa (la desactivaron en Configuración),
-  // se cambia a la de por defecto con su comisión, para no enviar una que el servidor rechazaría.
+  // Una fila nueva (sin categoría) o con una categoría que ya no está activa toma la de por
+  // defecto, para no enviar una que el servidor rechazaría.
   useEffect(() => {
     if (categoryNames.length === 0) return;
     if (items.every((item) => categoryNames.includes(item.cat))) return;
-    setItems(
-      items.map((item) =>
-        categoryNames.includes(item.cat) ? item : { ...item, cat: defaultCategory, commission: defaultCommissions[defaultCategory] ?? "" },
-      ),
-    );
-  }, [categoryNames, items, setItems, defaultCategory, defaultCommissions]);
+    setItems(items.map((item) => (categoryNames.includes(item.cat) ? item : { ...item, cat: defaultCategory })));
+  }, [categoryNames, items, setItems, defaultCategory]);
+
   const updateItem = (id: number, field: keyof SaleItem, val: string | number) => {
-    setItems(
-      items.map((item) => {
-        if (item.id !== id) return item;
-        const updated = { ...item, [field]: val };
-        if (field === "cat") updated.commission = defaultCommissions[val as string] ?? "";
-        return updated;
-      })
-    );
+    setItems(items.map((item) => (item.id === id ? { ...item, [field]: val } : item)));
   };
 
   const addItem = () => {
@@ -79,7 +65,6 @@ export default function ItemsTable({
             <th>Cant.</th>
             <th>Precio unit.</th>
             <th>Subtotal</th>
-            {isAdmin && <th>Comisión %</th>}
             <th />
           </tr>
         </thead>
@@ -97,15 +82,7 @@ export default function ItemsTable({
                   />
                 </td>
                 <td>
-                  <select
-                    className="cell-select"
-                    value={item.cat}
-                    onChange={(e) => updateItem(item.id, "cat", e.target.value)}
-                  >
-                    {categoryNames.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
+                  <Select compact ariaLabel="Categoría" value={item.cat} options={categoryNames} onChange={(value) => updateItem(item.id, "cat", value)} />
                 </td>
                 <td>
                   <input
@@ -120,21 +97,6 @@ export default function ItemsTable({
                   <MoneyInput value={item.price} onChange={(price) => updateItem(item.id, "price", price)} ariaLabel="Precio unitario" />
                 </td>
                 <td className="cell-amount">{formatQuetzales(subtotal)}</td>
-                {isAdmin && (
-                  <td>
-                    <div className="comm-cell">
-                      {item.commission !== "" ? (
-                        <input
-                          className="cell-input narrow"
-                          value={item.commission}
-                          onChange={(e) => updateItem(item.id, "commission", e.target.value)}
-                        />
-                      ) : (
-                        <span className="badge badge-neutral">Pendiente</span>
-                      )}
-                    </div>
-                  </td>
-                )}
                 <td>
                   <button type="button" className="icon-button" onClick={() => removeItem(item.id)} aria-label="Quitar">
                     <Icon name="trash" size="sm" />

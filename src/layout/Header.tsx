@@ -16,7 +16,6 @@ export default function Header({ user, onLogout }: { user: SessionUser; onLogout
   return (
     <header className="topbar">
       <div className="topbar-heading">
-        <div className="page-kicker">SoloMotos / {title}</div>
         <div className="page-title" title={title}>
           {title}
         </div>

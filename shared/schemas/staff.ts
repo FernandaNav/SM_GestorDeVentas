@@ -17,7 +17,13 @@ export const staffInputSchema = z.object({
     .string()
     .trim()
     .transform((value) => value || null)
-    .pipe(z.string().regex(/^[0-9 +-]{8,15}$/, "Teléfono inválido (ej. 5512-3344)").nullable())
+    .pipe(
+      z
+        .string()
+        .regex(/^[0-9 +-]{8,15}$/, "Teléfono inválido (ej. 5512 3344)")
+        .refine((phone) => phone.replace(/\D/g, "").length >= 8, "Faltan dígitos (ej. 5512 3344)")
+        .nullable(),
+    )
     .nullish(),
 });
 export type StaffInput = z.infer<typeof staffInputSchema>;

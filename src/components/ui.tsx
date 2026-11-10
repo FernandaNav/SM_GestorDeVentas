@@ -1,4 +1,6 @@
-import type { ChangeEvent, ReactNode } from "react";
+import { type ChangeEvent, type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Switch } from "glisse";
 
 export type IconName =
   | "home"
@@ -31,9 +33,11 @@ export type IconName =
   | "mail"
   | "eye"
   | "moon"
-  | "sun";
+  | "sun"
+  | "phone";
 
 const paths: Record<IconName, ReactNode> = {
+  phone: <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/>,
   home: <><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10M9 20v-6h6v6"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
@@ -87,8 +91,229 @@ export function TextInput({ label, value, placeholder, onChange, readOnly, error
   return <label className="field">{label && <span className="field-label">{label}</span>}<span className={`input-shell ${error ? "has-error" : ""}`}>{icon && <Icon name={icon} size="sm" />}<input type={type} value={value} placeholder={placeholder} onChange={(e: ChangeEvent<HTMLInputElement>) => onChange?.(e.target.value)} readOnly={readOnly} /></span>{error && <span className="field-error">{error}</span>}</label>;
 }
 
-export function Select({ label, value, options, onChange }: { label?: string; value?: string; options: string[]; onChange?: (value: string) => void }) {
-  return <label className="field">{label && <span className="field-label">{label}</span>}<span className="select-shell"><select value={value} onChange={(e) => onChange?.(e.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select><Icon name="chevron" size="sm" /></span></label>;
+export type SelectOption = string | { value: string; label: string };
+
+type SelectProps = {
+  label?: string;
+  value?: string;
+  options: SelectOption[];
+  onChange?: (value: string) => void;
+  /** Versión chica para celdas de tabla (categoría de cada producto). */
+  compact?: boolean;
+  /** Nombre para lectores de pantalla cuando no hay etiqueta visible. */
+  ariaLabel?: string;
+};
+
+type ListPosition = { left: number; minWidth: number; maxHeight: number; top?: number; bottom?: number };
+
+/**
+ * Lista desplegable propia (en lugar del <select> del navegador) para que se abra al hacer clic
+ * en cualquier parte de la caja, flecha incluida, y se vea igual que el calendario de fechas.
+ * La lista se dibuja fuera del contenedor (portal) para que no la corten las tablas ni los modales.
+ */
+export function Select({ label, value, options, onChange, compact = false, ariaLabel }: SelectProps) {
+  const items = options.map((option) => (typeof option === "string" ? { value: option, label: option } : option));
+  const selectedIndex = items.findIndex((item) => item.value === value);
+  const selected = items[selectedIndex];
+
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [position, setPosition] = useState<ListPosition | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const id = useId();
+  const labelId = `${id}-label`;
+  const valueId = `${id}-value`;
+  const listId = `${id}-list`;
+
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const wanted = Math.min(items.length * 36 + 12, 288);
+    const openUp = below < Math.min(wanted, 160) && above > below;
+    setPosition({
+      left: rect.left,
+      minWidth: rect.width,
+      maxHeight: Math.max(120, Math.min(288, openUp ? above : below)),
+      ...(openUp ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    });
+  }, [items.length]);
+
+  const openList = (index = selectedIndex) => {
+    place();
+    setActive(Math.max(0, index));
+    setOpen(true);
+  };
+  const close = (focusTrigger = false) => {
+    setOpen(false);
+    if (focusTrigger) triggerRef.current?.focus();
+  };
+  const choose = (index: number) => {
+    const item = items[index];
+    if (!item) return;
+    close(true);
+    if (item.value !== value) onChange?.(item.value);
+  };
+
+  // Se cierra al hacer clic afuera, al desplazar la página o al cambiar el tamaño de la ventana
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || listRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onScroll = (event: Event) => {
+      if (listRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    document.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  // Que no se salga por la derecha de la pantalla y que la opción marcada quede a la vista
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!open || !list || !position) return;
+    const overflow = list.getBoundingClientRect().right - (window.innerWidth - 8);
+    if (overflow > 0) list.style.left = `${Math.max(8, position.left - overflow)}px`;
+  }, [open, position]);
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const last = items.length - 1;
+    if (!open) {
+      if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        openList();
+      }
+      return;
+    }
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        setActive((i) => Math.min(last, i + 1));
+        return;
+      case "ArrowUp":
+        event.preventDefault();
+        setActive((i) => Math.max(0, i - 1));
+        return;
+      case "Home":
+        event.preventDefault();
+        setActive(0);
+        return;
+      case "End":
+        event.preventDefault();
+        setActive(last);
+        return;
+      case "Enter":
+      case " ":
+        event.preventDefault();
+        choose(active);
+        return;
+      case "Escape":
+        event.preventDefault();
+        event.stopPropagation();
+        close(true);
+        return;
+      case "Tab":
+        close();
+        return;
+    }
+    // Escribir una letra salta a la primera opción que empieza con ella, como en el select normal
+    if (event.key.length === 1 && /\S/.test(event.key)) {
+      const letter = event.key.toLocaleLowerCase("es");
+      const next = items.findIndex((item, i) => i > active && item.label.toLocaleLowerCase("es").startsWith(letter));
+      const first = items.findIndex((item) => item.label.toLocaleLowerCase("es").startsWith(letter));
+      if (next >= 0 || first >= 0) setActive(next >= 0 ? next : first);
+    }
+  };
+
+  // Las variables de color del modo oscuro viven en .app-shell, por eso la lista se dibuja ahí
+  const portalTarget = triggerRef.current?.closest(".app-shell") ?? document.body;
+
+  const trigger = (
+    <button
+      ref={triggerRef}
+      type="button"
+      className={`select-shell select-trigger${compact ? " compact" : ""}${open ? " is-open" : ""}`}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      aria-controls={open ? listId : undefined}
+      aria-label={label ? undefined : ariaLabel}
+      aria-labelledby={label ? `${labelId} ${valueId}` : undefined}
+      aria-activedescendant={open ? `${id}-option-${active}` : undefined}
+      onClick={() => (open ? close() : openList())}
+      onKeyDown={onKeyDown}
+    >
+      {/* Las opciones ocultas hacen que la caja mida lo de la opción más larga, como el select normal */}
+      <span className="select-value-stack">
+        <span id={valueId} className={`select-value${selected ? "" : " is-placeholder"}`}>{selected?.label ?? (value || "Seleccionar")}</span>
+        {items.map((item) => (
+          <span key={item.value} className="select-sizer" aria-hidden="true">{item.label}</span>
+        ))}
+      </span>
+      <Icon name="chevron" size="sm" />
+    </button>
+  );
+
+  const list =
+    open && position
+      ? createPortal(
+          <ul
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            className={`select-popover${compact ? " compact" : ""}`}
+            style={{ left: position.left, top: position.top, bottom: position.bottom, minWidth: position.minWidth, maxHeight: position.maxHeight }}
+            // Dentro de un modal, que el clic en la lista no cuente como clic afuera del modal
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            {items.map((item, index) => (
+              <li
+                key={item.value}
+                id={`${id}-option-${index}`}
+                data-index={index}
+                role="option"
+                aria-selected={index === selectedIndex}
+                className={`${index === selectedIndex ? "selected" : ""}${index === active ? " active" : ""}`}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => choose(index)}
+              >
+                <span>{item.label}</span>
+                {index === selectedIndex && <Icon name="check" size="sm" />}
+              </li>
+            ))}
+            {items.length === 0 && <li className="select-empty">Sin opciones</li>}
+          </ul>,
+          portalTarget,
+        )
+      : null;
+
+  if (compact && !label) return <>{trigger}{list}</>;
+  return (
+    <div className="field">
+      {label && <span id={labelId} className="field-label" onClick={() => triggerRef.current?.focus()}>{label}</span>}
+      {trigger}
+      {list}
+    </div>
+  );
 }
 
 export function TextArea({ label, value, placeholder, onChange }: { label?: string; value?: string; placeholder?: string; onChange?: (value: string) => void }) {
@@ -96,7 +321,19 @@ export function TextArea({ label, value, placeholder, onChange }: { label?: stri
 }
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <button type="button" className="toggle-row" onClick={() => onChange(!checked)}><span className={`toggle ${checked ? "is-on" : ""}`}><span /></span><span>{label}</span></button>;
+  return <label className="toggle-row"><Switch checked={checked} onCheckedChange={onChange} /><span>{label}</span></label>;
+}
+
+/** Interruptor de liquid glass (glisse) con su etiqueta. Se mueve al instante y vuelve atrás si onChange falla. */
+export function GlassToggle({ checked, onChange, label, title, disabled = false }: { checked: boolean; onChange: (checked: boolean) => void | Promise<void>; label: string; title?: string; disabled?: boolean }) {
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  useEffect(() => setOptimistic(null), [checked]);
+  const shown = optimistic ?? checked;
+  const handleChange = (next: boolean) => {
+    setOptimistic(next);
+    Promise.resolve(onChange(next)).finally(() => setOptimistic(null));
+  };
+  return <label className={`person-toggle ${shown ? "on" : ""}`} title={title}><Switch checked={shown} onCheckedChange={handleChange} disabled={disabled} /><span className="toggle-label">{label}</span></label>;
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "success" | "neutral" | "danger" | "warning" | "info" }) {
@@ -114,5 +351,5 @@ export function FormError({ message }: { message: string }) {
 
 export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean }) {
   if (!open) return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-scrim" aria-hidden="true" /><div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
 }

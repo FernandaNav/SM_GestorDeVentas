@@ -1,17 +1,20 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import type { DashboardSummary } from "@shared/schemas/reports";
 import { fromApiDay, reportsApi } from "@/api/reports";
 import KpiCard from "@/components/KpiCard";
 import { addMonths, fmtMonth } from "@/components/dates";
 import { Badge, Button, Card, Icon, Select } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
-import { formatQuetzales, SALE_TIME_FORMAT, SHORT_DATE_FORMAT } from "@/lib/format";
+import { countLabel, formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
 import { paths } from "@/layout/navigation";
 import EmptyState from "@/pages/stats/EmptyState";
 import { bucketLabel, bucketTick, greeting } from "@/pages/stats/reportFormat";
 import { BarList, formatChange, LineChart, LineLegend, percentChange } from "@/pages/stats/charts";
 
 const SELLER_MONTHS = ["Este mes", "Mes anterior"] as const;
+// Las ventas recientes son de hace poco: el año y el día de la semana solo le quitan espacio a la tabla
+const DAY_MONTH_FORMAT = new Intl.DateTimeFormat("es-GT", { day: "numeric", month: "short" });
 
 // Dashboard del Administrador (RNF 4.1): todo viene calculado del servidor en una sola
 // consulta y se actualiza solo cada 10 s, así refleja lo que registra el mostrador.
@@ -30,7 +33,7 @@ export default function DashboardPage() {
   }
 
   const today = fromApiDay(data.today);
-  const { todaySales, monthSales, previousMonthSales, commissions, expenses, invoices } = data;
+  const { todaySales, monthSales, previousMonthSales, commissions, expenses, invoices, workshop } = data;
   const monthChange = percentChange(monthSales.total, previousMonthSales.total);
   const invoicePercent = invoices.limit > 0 ? Math.round((invoices.issued / invoices.limit) * 100) : 0;
   const invoiceAlert = invoicePercent >= invoices.alertPercent;
@@ -49,7 +52,7 @@ export default function DashboardPage() {
         <div className="comm-pending-banner" role="status">
           <Icon name="coins" size="sm" />
           <span>
-            Hay {commissions.pendingSales} {commissions.pendingSales === 1 ? "venta" : "ventas"} de este mes con comisión pendiente de asignar.
+            Hay {countLabel(commissions.pendingSales, "venta", "ventas")} de este mes con comisión pendiente de asignar.
           </span>
           <button type="button" className="forgot-link" style={{ background: "none", border: 0 }} onClick={() => navigate(paths.commissions)}>
             Asignar comisiones
@@ -62,7 +65,7 @@ export default function DashboardPage() {
           icon="cash"
           label="Ventas del día"
           value={formatQuetzales(todaySales.total)}
-          foot={todaySales.count > 0 ? `${todaySales.count} ${todaySales.count === 1 ? "venta registrada" : "ventas registradas"} hoy` : "Sin ventas registradas hoy"}
+          foot={todaySales.count > 0 ? `${countLabel(todaySales.count, "venta registrada", "ventas registradas")} hoy` : "Sin ventas registradas hoy"}
           tone="orange"
         />
         <KpiCard
@@ -71,7 +74,7 @@ export default function DashboardPage() {
           value={formatQuetzales(monthSales.total)}
           foot={
             monthChange === null
-              ? `${monthSales.count} ventas este mes`
+              ? `${countLabel(monthSales.count, "venta", "ventas")} este mes`
               : `${formatChange(monthSales.total, previousMonthSales.total)} vs. mismos días del mes anterior`
           }
           tone="blue"
@@ -80,15 +83,20 @@ export default function DashboardPage() {
           icon="coins"
           label="Comisiones del mes"
           value={formatQuetzales(commissions.total)}
-          foot={commissions.pendingItems > 0 ? `${commissions.pendingItems} artículos con comisión pendiente` : "Sin comisiones pendientes"}
+          foot={commissions.pendingItems > 0 ? `${countLabel(commissions.pendingItems, "artículo", "artículos")} con comisión pendiente` : "Sin comisiones pendientes"}
           tone="purple"
         />
-        <KpiCard icon="receipt" label="Gastos del mes" value={formatQuetzales(expenses.total)} foot={`${expenses.count} gastos registrados`} tone="red" />
+        <KpiCard icon="receipt" label="Gastos del mes" value={formatQuetzales(expenses.total)} foot={countLabel(expenses.count, "gasto registrado", "gastos registrados")} tone="red" />
         <KpiCard
           icon="file"
           label="Facturas emitidas"
           value={`${invoices.issued} / ${invoices.limit}`}
-          foot={`${invoicePercent} % del límite mensual`}
+          foot={
+            invoiceAlert
+              ? `Atención: ${countLabel(available, "disponible", "disponibles")} este mes`
+              : `${countLabel(available, "disponible", "disponibles")} · ${invoicePercent} % del límite`
+          }
+          footWarning={invoiceAlert}
           tone="green"
         />
       </div>
@@ -110,12 +118,12 @@ export default function DashboardPage() {
                 rows={sellers.map((s) => ({
                   key: s.sellerId,
                   label: s.sellerName,
-                  detail: `${s.salesCount} ${s.salesCount === 1 ? "venta" : "ventas"} · comisión ${formatQuetzales(s.commissionTotal)}`,
+                  detail: `${countLabel(s.salesCount, "venta", "ventas")} · comisión ${formatQuetzales(s.commissionTotal)}`,
                   value: s.total,
                 }))}
               />
               <div className="chart-summary">
-                <span>{sellersCount} ventas totales</span>
+                <span>{countLabel(sellersCount, "venta total", "ventas totales")}</span>
                 <span>
                   Ticket promedio <strong>{formatQuetzales(sellersCount > 0 ? sellersTotal / sellersCount : 0)}</strong>
                 </span>
@@ -172,7 +180,7 @@ export default function DashboardPage() {
                     <th>Productos</th>
                     <th>Vendedor</th>
                     <th>Pago</th>
-                    <th>Monto</th>
+                    <th className="num">Monto</th>
                     <th>Estado</th>
                   </tr>
                 </thead>
@@ -180,14 +188,14 @@ export default function DashboardPage() {
                   {data.recentSales.map((sale) => (
                     <tr key={sale.id}>
                       <td>
-                        {SHORT_DATE_FORMAT.format(new Date(sale.soldAt))} · {SALE_TIME_FORMAT.format(new Date(sale.soldAt))}
+                        {DAY_MONTH_FORMAT.format(new Date(sale.soldAt))} · {SALE_TIME_FORMAT.format(new Date(sale.soldAt))}
                       </td>
-                      <td>
+                      <td className="cell-fill" title={sale.itemsSummary}>
                         <strong>{sale.itemsSummary}</strong>
                       </td>
-                      <td>{sale.sellerName}</td>
+                      <td className="cell-name" title={sale.sellerName}>{sale.sellerName}</td>
                       <td>{sale.paymentMethod}</td>
-                      <td>
+                      <td className="num">
                         <strong>{formatQuetzales(sale.total)}</strong>
                       </td>
                       <td>
@@ -201,51 +209,48 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card className="invoice-limit">
-          <div className="card-title">Control de facturas</div>
-          <div
-            className="radial"
-            style={{
-              position: "relative",
-              background: `conic-gradient(var(${invoiceAlert ? "--color-warning" : "--color-primary"}) 0 ${Math.min(100, invoicePercent)}%, var(--color-primary-soft) ${Math.min(100, invoicePercent)}% 100%)`,
-            }}
-          >
-            <div>
-              <strong>{invoicePercent}%</strong>
-              <span>utilizado</span>
-            </div>
-          </div>
-          <div className="limit-stats">
-            <div>
-              <span>Emitidas</span>
-              <strong>{invoices.issued}</strong>
-            </div>
-            <div>
-              <span>Disponibles</span>
-              <strong>{available}</strong>
-            </div>
-          </div>
-          <div className="notice" style={invoiceAlert ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" } : undefined}>
-            <Icon name="file" size="sm" />
-            <span>
-              {invoiceAlert
-                ? `Atención: ya se usó el ${invoicePercent} % del límite. Quedan ${available} facturas este mes.`
-                : `Te quedan ${available} facturas disponibles este mes.`}
-            </span>
-          </div>
-        </Card>
+        <WorkshopSummaryCard workshop={workshop} onOpen={() => navigate(paths.workshop)} />
       </div>
     </div>
+  );
+}
+
+function WorkshopSummaryCard({ workshop, onOpen }: { workshop: DashboardSummary["workshop"]; onOpen: () => void }) {
+  const rows = [
+    { label: "Recibidas", count: workshop.received, color: "--color-text" },
+    { label: "En reparación", count: workshop.inRepair, color: "--color-warning" },
+    { label: "Listas para entregar", count: workshop.ready, color: "--color-success" },
+    { label: "Entregadas hoy", count: workshop.deliveredToday, color: "--color-blue" },
+  ];
+  const activeOrders = workshop.received + workshop.inRepair + workshop.ready;
+
+  return (
+    <Card>
+      <div className="card-heading">
+        <div>
+          <div className="card-title">Taller</div>
+          <div className="muted small">{countLabel(activeOrders, "orden activa", "órdenes activas")}</div>
+        </div>
+        <Button variant="ghost" onClick={onOpen}>
+          Ver taller
+        </Button>
+      </div>
+      <ul className="workshop-summary">
+        {rows.map((row) => (
+          <li key={row.label}>
+            <span>{row.label}</span>
+            <strong style={{ color: `var(${row.color})` }}>{row.count}</strong>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
 function Hero({ onNewSale }: { onNewSale: () => void }) {
   return (
     <div className="hero-row">
-      <div>
-        <div className="section-title">{greeting()}</div>
-        <div className="muted">Este es el resumen de tu negocio al día de hoy.</div>
-      </div>
+      <div className="section-title">{greeting()}</div>
       <Button icon="plus" onClick={onNewSale}>
         Nueva venta
       </Button>

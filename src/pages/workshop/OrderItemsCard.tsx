@@ -8,7 +8,7 @@ import {
 import { ApiError } from "@/api/client";
 import { useCatalog } from "@/catalog/CatalogContext";
 import Segmented from "@/components/Segmented";
-import { Badge, Button, Card, Icon } from "@/components/ui";
+import { Badge, Button, Card, Icon, Select } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
 import { issuesToErrors } from "@/lib/validation";
 
@@ -86,6 +86,53 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
 
   return (
     <Card className="form-card">
+      {editable && (
+        <div className="screen-stack" style={{ marginBottom: 28 }}>
+          <div className="field-label">Agregar</div>
+          <Segmented options={["Servicio", "Repuesto"]} value={KIND_LABELS[kind]} onChange={handleKindChange} />
+          <div className="items-table-wrap">
+            <table className="items-table">
+              <thead>
+                <tr>
+                  <th>Descripción</th>
+                  <th>Categoría</th>
+                  <th>Cant.</th>
+                  <th>Precio unit.</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <input
+                      className="cell-input wide"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder={kind === "servicio" ? "Ej. Cambio de aceite" : "Ej. Filtro de aceite"}
+                    />
+                  </td>
+                  <td>
+                    <Select compact ariaLabel="Categoría" value={category?.name ?? ""} options={categories.map((c) => c.name)} onChange={setCategoryName} />
+                  </td>
+                  <td>
+                    <input className="cell-input narrow" type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                  </td>
+                  <td>
+                    <input className="cell-input" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} placeholder="0.00" />
+                  </td>
+                  <td>
+                    <Button icon="plus" variant="secondary" onClick={handleAdd} disabled={busy}>
+                      Agregar
+                    </Button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {fieldError && <span className="field-error">{fieldError}</span>}
+        </div>
+      )}
+
       <div className="card-heading">
         <div>
           <div className="card-title">Servicios y repuestos</div>
@@ -99,7 +146,7 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
             <Icon name="wrench" />
           </div>
           <div className="empty-state-title">Todavía no hay servicios ni repuestos</div>
-          <div className="empty-state-desc">Agrégalos abajo conforme el mecánico avance con el trabajo.</div>
+          <div className="empty-state-desc">Agrégalos arriba conforme el mecánico avance con el trabajo.</div>
         </div>
       ) : (
         <div className="items-table-wrap">
@@ -143,56 +190,6 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
         </div>
       )}
 
-      {editable && (
-        <div className="screen-stack" style={{ marginTop: 18 }}>
-          <div className="field-label">Agregar</div>
-          <Segmented options={["Servicio", "Repuesto"]} value={KIND_LABELS[kind]} onChange={handleKindChange} />
-          <div className="items-table-wrap">
-            <table className="items-table">
-              <thead>
-                <tr>
-                  <th>Descripción</th>
-                  <th>Categoría</th>
-                  <th>Cant.</th>
-                  <th>Precio unit.</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>
-                    <input
-                      className="cell-input wide"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder={kind === "servicio" ? "Ej. Cambio de aceite" : "Ej. Filtro de aceite"}
-                    />
-                  </td>
-                  <td>
-                    <select className="cell-select" value={category?.name ?? ""} onChange={(e) => setCategoryName(e.target.value)}>
-                      {categories.map((c) => (
-                        <option key={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input className="cell-input narrow" type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-                  </td>
-                  <td>
-                    <input className="cell-input" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} placeholder="0.00" />
-                  </td>
-                  <td>
-                    <Button icon="plus" variant="secondary" onClick={handleAdd} disabled={busy}>
-                      Agregar
-                    </Button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          {fieldError && <span className="field-error">{fieldError}</span>}
-        </div>
-      )}
     </Card>
   );
 }

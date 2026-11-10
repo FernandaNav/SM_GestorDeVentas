@@ -31,6 +31,8 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const [taxId, setTaxId] = useState("");
   const [clientName, setClientName] = useState(order.clientName);
   const [clientAddress, setClientAddress] = useState("");
+  // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
+  const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -39,7 +41,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const seller = sellers.find((s) => s.fullName === sellerName) ?? (sellers.length === 1 ? sellers[0] : undefined);
   const total = order.itemsTotal;
   const isCF = taxId === "CF";
-  const showCfWarning = isInvoiced && isCF && total >= CF_MAX_INVOICE_TOTAL;
+  const showCfWarning = isInvoiced && (isCF || cfRejected) && total >= CF_MAX_INVOICE_TOTAL;
 
   // Autocompletar cliente al escribir NIT / CUI, igual que en Nueva venta (RNF 3.1)
   const clientLookup = useClientLookup(isInvoiced ? taxId : "", (client) => {
@@ -55,6 +57,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const handleTaxIdChange = (value: string) => {
     const next = formatTaxId(taxIdType, value);
     if (next === taxId) return;
+    setCfRejected(false);
     setTaxId(next);
     if (clientLookup.client || isCF) {
       setClientName(order.clientName);
@@ -69,6 +72,12 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   };
 
   const handleFillCF = () => {
+    // Desde Q2,500 la SAT exige NIT o CUI: no se llena como Consumidor Final, solo se avisa
+    if (total >= CF_MAX_INVOICE_TOTAL) {
+      setCfRejected(true);
+      return;
+    }
+    setCfRejected(false);
     setTaxId("CF");
     setClientName("Consumidor Final");
     setClientAddress("Ciudad");
@@ -177,7 +186,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
           {showCfWarning && (
             <div className="cf-warning">
               <Icon name="bell" size="sm" />
-              <span>Para ventas de {formatQuetzales(CF_MAX_INVOICE_TOTAL)} o más la SAT requiere NIT o CUI del comprador.</span>
+              <span>Para ventas de {formatQuetzales(CF_MAX_INVOICE_TOTAL)} o más la SAT requiere NIT o CUI del comprador; no se puede facturar como Consumidor Final.</span>
             </div>
           )}
           <TextInput label="Nombre o razón social" value={clientName} onChange={setClientName} error={errors["client.name"]} />

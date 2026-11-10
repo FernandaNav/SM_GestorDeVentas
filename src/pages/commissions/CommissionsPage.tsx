@@ -8,7 +8,7 @@ import Segmented from "@/components/Segmented";
 import { type DateRange, DateRangePicker, fmtRangeLong, presetRange } from "@/components/dates";
 import { Badge, Button, Card, Icon } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
-import { formatQuetzales, SALE_TIME_FORMAT, SHORT_DATE_FORMAT } from "@/lib/format";
+import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
 import EmptyState from "@/pages/stats/EmptyState";
 import AssignPendingModal from "./AssignPendingModal";
 
@@ -84,11 +84,7 @@ export default function CommissionsPage() {
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">Comisiones por vendedor</div>
-          <div className="muted">Qué vendió cada vendedor y cuánta comisión generó en el rango de fechas.</div>
-        </div>
+      <div className="hero-row hero-actions">
         <div className="inline-filters">
           <DateRangePicker
             value={range}
@@ -224,7 +220,7 @@ export default function CommissionsPage() {
           />
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="table-compact">
               <thead>
                 <tr>
                   <th>
@@ -262,11 +258,11 @@ export default function CommissionsPage() {
                         )}
                       </td>
                       <td>
-                        {SHORT_DATE_FORMAT.format(new Date(item.soldAt))} · {SALE_TIME_FORMAT.format(new Date(item.soldAt))}
+                        {new Date(item.soldAt).toLocaleDateString("es-GT")} · {SALE_TIME_FORMAT.format(new Date(item.soldAt))}
                       </td>
                       <td>#{item.saleId}</td>
-                      {sellerId === null && <td>{item.sellerName}</td>}
-                      <td>
+                      {sellerId === null && <td className="cell-name" title={item.sellerName}>{item.sellerName}</td>}
+                      <td className="cell-fill" title={item.description}>
                         <strong>{item.description}</strong>
                         {item.quantity > 1 && ` × ${item.quantity}`}
                       </td>

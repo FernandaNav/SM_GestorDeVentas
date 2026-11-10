@@ -8,18 +8,19 @@ import * as reportsRepository from "./reports.repository";
 // totales listos y nunca la lista completa de ventas. Los días son de Guatemala y "hoy"
 // lo decide el reloj del servidor (RNF 3.2).
 
-/** Dashboard del Administrador: ventas del día y del mes, comisiones, gastos y facturas. */
+/** Dashboard del Administrador: ventas del día y del mes, comisiones, gastos, facturas y taller. */
 export async function getDashboard(): Promise<DashboardSummary> {
   const today = todayInGuatemala();
   const month = { from: monthStart(today), to: today };
   const previousMonthToDate = sameDaysOfPreviousMonth(today);
   const previousMonth = { from: previousMonthToDate.from, to: monthEnd(previousMonthToDate.from) };
 
-  const [sales, commissions, expenses, invoices, currentSellers, previousSellers, dailySeries, recentSales] = await Promise.all([
+  const [sales, commissions, expenses, invoices, workshop, currentSellers, previousSellers, dailySeries, recentSales] = await Promise.all([
     reportsRepository.findSalesSnapshot(pool, { today, month, previousMonth: previousMonthToDate }),
     reportsRepository.findCommissionSnapshot(pool, month),
     reportsRepository.findExpenses(pool, month),
     reportsRepository.findInvoiceUsage(pool, month),
+    reportsRepository.findWorkshopSnapshot(pool, today),
     reportsRepository.findBySeller(pool, month),
     reportsRepository.findBySeller(pool, previousMonth),
     reportsRepository.findSeries(pool, month, "day"),
@@ -34,6 +35,7 @@ export async function getDashboard(): Promise<DashboardSummary> {
     commissions,
     expenses: { total: expenses.total, count: expenses.count },
     invoices,
+    workshop,
     sellers: { currentMonth: currentSellers, previousMonth: previousSellers },
     dailySeries,
     recentSales,
