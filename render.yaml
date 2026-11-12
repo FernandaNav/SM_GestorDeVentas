@@ -2,7 +2,7 @@
 # Un solo servicio entrega la API y el frontend compilado, en la misma dirección.
 services:
   - type: web
-    name: solomotos
+    name: gestorsm # también da la dirección: gestorsm.onrender.com
     runtime: node
     region: ohio # la misma zona que Supabase (us-east-2): las consultas viajan menos
     plan: free
