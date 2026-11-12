@@ -39,13 +39,23 @@ Vite redirige `/api` al backend, así que en el navegador solo se abre `http://l
 | `pnpm typecheck` | Revisa tipos del frontend y del backend (debe pasar antes de cada PR) |
 | `pnpm test` | Prueba ventas contra un PostgreSQL local (necesita `TEST_DATABASE_URL`, ver `.env.example`; esa base se borra) |
 | `pnpm build` | Compila el frontend en `dist/` |
-| `pnpm server` | Backend sin recarga (producción). Si existe `dist/`, también entrega el frontend |
+| `pnpm run server` | Backend sin recarga (producción; con `run`, porque `pnpm server` es otro comando de pnpm). Si existe `dist/`, también entrega el frontend |
 | `pnpm db:migrate` | Aplica las migraciones pendientes de `server/db/migrations/` |
 | `pnpm db:seed-users` | Crea o reinicia las dos cuentas de acceso |
 | `pnpm db:reset-password` | Cambia la contraseña de una cuenta desde el servidor (si se olvidó) |
 
 ## Puesta en marcha en el negocio
 
-1. En la computadora de gerencia (o un servidor): `pnpm install`, `.env`, `pnpm build`, `pnpm server`.
+1. En la computadora de gerencia (o un servidor): `pnpm install`, `.env`, `pnpm build`, `pnpm run server`.
 2. En las dos estaciones se abre `http://<ip-de-esa-computadora>:3001`.
 3. Cada estación ve los cambios de la otra en máximo 10 segundos.
+
+## Despliegue en Render
+
+`render.yaml` define un solo servicio que compila el frontend y lo entrega junto con la API.
+
+1. En Render: **New > Blueprint** y elegir este repositorio (despliega la rama `main`).
+2. Cuando lo pida, pegar en `DATABASE_URL` la cadena del **Session pooler** de Supabase. `JWT_SECRET` la genera Render.
+3. La base ya debe tener las migraciones aplicadas (`pnpm db:migrate` desde una computadora con el `.env`).
+
+En el plan gratuito el servicio se duerme tras 15 minutos sin uso: la primera visita después tarda cerca de un minuto.

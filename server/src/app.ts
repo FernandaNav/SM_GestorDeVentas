@@ -18,6 +18,7 @@ import { workshopRouter } from "./modules/workshop/workshop.routes";
 
 export const app = express();
 
+app.set("trust proxy", env.TRUST_PROXY);
 app.use(cors({ origin: env.CORS_ORIGIN }));
 app.use(express.json());
 

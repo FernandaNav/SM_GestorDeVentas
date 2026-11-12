@@ -1,0 +1,21 @@
+# Despliegue en Render: New > Blueprint y elegir este repositorio.
+# Un solo servicio entrega la API y el frontend compilado, en la misma dirección.
+services:
+  - type: web
+    name: solomotos
+    runtime: node
+    region: ohio # la misma zona que Supabase (us-east-2): las consultas viajan menos
+    plan: free
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm build
+    startCommand: pnpm run server # "pnpm server" sin "run" es un comando propio de pnpm y no arranca nada
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false # Render la pide al crear el servicio: la del "Session pooler" de Supabase
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TRUST_PROXY
+        value: "1"
