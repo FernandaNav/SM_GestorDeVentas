@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { INVOICE_LIMIT_ENABLED } from "@shared/constants";
 import type { DashboardSummary } from "@shared/schemas/reports";
 import { fromApiDay, reportsApi } from "@/api/reports";
 import KpiCard from "@/components/KpiCard";
@@ -36,7 +37,7 @@ export default function DashboardPage() {
   const { todaySales, monthSales, previousMonthSales, commissions, expenses, invoices, workshop } = data;
   const monthChange = percentChange(monthSales.total, previousMonthSales.total);
   const invoicePercent = invoices.limit > 0 ? Math.round((invoices.issued / invoices.limit) * 100) : 0;
-  const invoiceAlert = invoicePercent >= invoices.alertPercent;
+  const invoiceAlert = INVOICE_LIMIT_ENABLED && invoicePercent >= invoices.alertPercent;
   const available = Math.max(0, invoices.limit - invoices.issued);
 
   const sellers = sellerMonth === "Este mes" ? data.sellers.currentMonth : data.sellers.previousMonth;
@@ -90,9 +91,11 @@ export default function DashboardPage() {
         <KpiCard
           icon="file"
           label="Facturas emitidas"
-          value={`${invoices.issued} / ${invoices.limit}`}
+          value={INVOICE_LIMIT_ENABLED ? `${invoices.issued} / ${invoices.limit}` : String(invoices.issued)}
           foot={
-            invoiceAlert
+            !INVOICE_LIMIT_ENABLED
+              ? "En lo que va del mes"
+              : invoiceAlert
               ? `Atención: ${countLabel(available, "disponible", "disponibles")} este mes`
               : `${countLabel(available, "disponible", "disponibles")} · ${invoicePercent} % del límite`
           }

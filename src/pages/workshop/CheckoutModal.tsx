@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CF_MAX_INVOICE_TOTAL, PAYMENT_METHODS, type PaymentMethod } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, INVOICING_OPTIONAL, PAYMENT_METHODS, type PaymentMethod } from "@shared/constants";
 import { createSaleSchema } from "@shared/schemas/sales";
 import { workshopCheckoutSchema, type WorkshopCheckoutInput, type WorkshopOrderDetail } from "@shared/schemas/workshop";
 import { ApiError } from "@/api/client";
@@ -26,7 +26,8 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   const { sellers } = useCatalog();
   const [sellerName, setSellerName] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
-  const [isInvoiced, setIsInvoiced] = useState(false);
+  // Temporal: con INVOICING_OPTIONAL en false todo cobro se factura (ver shared/constants.ts)
+  const [isInvoiced, setIsInvoiced] = useState(!INVOICING_OPTIONAL);
   const [taxIdType, setTaxIdType] = useState<"NIT" | "CUI">("NIT");
   const [taxId, setTaxId] = useState("");
   const [clientName, setClientName] = useState(order.clientName);
@@ -154,9 +155,11 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
         </div>
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="¿Facturar este servicio?" />
-      </div>
+      {INVOICING_OPTIONAL && (
+        <div style={{ marginTop: 16 }}>
+          <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="¿Facturar este servicio?" />
+        </div>
+      )}
 
       {isInvoiced && (
         <div style={{ marginTop: 16 }} className="screen-stack">

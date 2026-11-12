@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ROLES, type Role } from "@shared/constants";
+import { INVOICE_LIMIT_ENABLED, ROLES, type Role } from "@shared/constants";
 import { changePasswordSchema } from "@shared/schemas/auth";
 import { categoryCommissionSchema, categoryCreateSchema, settingsInputSchema } from "@shared/schemas/settings";
 import { categoriesApi } from "@/api/categories";
@@ -271,6 +271,7 @@ export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSet
           {statusLine(categoryStatus)}
         </Card>
 
+        {INVOICE_LIMIT_ENABLED && (
         <Card className="form-card">
           <div className="card-title">Control de facturación</div>
           <div className="vertical-form">
@@ -298,6 +299,7 @@ export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSet
             </Button>
           </div>
         </Card>
+        )}
 
         <Card className="form-card">
           <div className="card-title">Contraseñas</div>

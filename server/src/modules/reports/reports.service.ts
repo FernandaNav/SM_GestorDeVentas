@@ -1,3 +1,4 @@
+import { INVOICE_LIMIT_ENABLED } from "@shared/constants";
 import type { DateRange } from "@shared/schemas/common";
 import { statsBucketFor, type DashboardSummary, type EmployeeHome, type StatsFilters, type StatsPeriod, type StatsReport } from "@shared/schemas/reports";
 import { pool } from "../../db/pool";
@@ -67,7 +68,7 @@ export async function getEmployeeHome(): Promise<EmployeeHome> {
     today,
     sales,
     workshop,
-    invoiceAlert: invoices.issued * 100 >= invoices.limit * invoices.alertPercent,
+    invoiceAlert: INVOICE_LIMIT_ENABLED && invoices.issued * 100 >= invoices.limit * invoices.alertPercent,
   };
 }
 

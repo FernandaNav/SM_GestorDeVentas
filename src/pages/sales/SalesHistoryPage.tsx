@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { PaymentMethod, Role } from "@shared/constants";
+import { INVOICE_LIMIT_ENABLED, type PaymentMethod, type Role } from "@shared/constants";
 import type { SaleDetail, SaleFilters, SaleSummary } from "@shared/schemas/sales";
 import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
@@ -185,11 +185,13 @@ export default function SalesHistory({ role }: { role: Role }) {
           >
             <Icon name="file" size="sm" />
             <span>
-              Facturas del mes: <strong>{invoiceUsage.issued} / {invoiceUsage.limit}</strong>
+              Facturas del mes: <strong>{INVOICE_LIMIT_ENABLED ? `${invoiceUsage.issued} / ${invoiceUsage.limit}` : invoiceUsage.issued}</strong>
             </span>
-            <Badge tone={invoiceUsage.isAlert ? "warning" : "neutral"}>
-              {invoiceUsage.percent}%
-            </Badge>
+            {INVOICE_LIMIT_ENABLED && (
+              <Badge tone={invoiceUsage.isAlert ? "warning" : "neutral"}>
+                {invoiceUsage.percent}%
+              </Badge>
+            )}
           </div>
         )}
         </div>

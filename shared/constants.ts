@@ -30,5 +30,15 @@ export type ExpenseArea = (typeof EXPENSE_AREAS)[number];
 /** La SAT exige NIT o CUI del comprador desde este monto (Q). */
 export const CF_MAX_INVOICE_TOTAL = 2500;
 
+/*
+ * ── Cambios TEMPORALES (pedidos el 11/11/2026) ─────────────────────────────
+ * Para volver a como estaba, cambia los dos valores a true. No se borró nada:
+ * el límite y el porcentaje de aviso siguen guardados en Configuración.
+ */
+/** false = sin límite de facturas: solo se muestra cuántas se emitieron en el mes, sin alertas. */
+export const INVOICE_LIMIT_ENABLED = false;
+/** false = en Nueva venta y en el cobro de Taller no hay switch: todo se factura. */
+export const INVOICING_OPTIONAL = false;
+
 /** Cada cuánto las pantallas vuelven a pedir sus datos (RF 6.3). */
 export const POLL_INTERVAL_MS = 10_000;

@@ -1,6 +1,6 @@
 import type { Request } from "express";
 import type pg from "pg";
-import type { Role, SaleItemOrigin } from "@shared/constants";
+import { INVOICE_LIMIT_ENABLED, type Role, type SaleItemOrigin } from "@shared/constants";
 import type { Page, Pagination } from "@shared/schemas/common";
 import {
   calculateTotal,
@@ -105,7 +105,7 @@ export async function getInvoiceUsage(): Promise<import("@shared/schemas/sales")
   return {
     ...usage,
     percent,
-    isAlert: percent >= usage.alertPercent,
+    isAlert: INVOICE_LIMIT_ENABLED && percent >= usage.alertPercent,
     remaining: Math.max(0, usage.limit - usage.issued),
   };
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CF_MAX_INVOICE_TOTAL, type PaymentMethod, type Role } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, INVOICE_LIMIT_ENABLED, INVOICING_OPTIONAL, type PaymentMethod, type Role } from "@shared/constants";
 import { createSaleSchema, type CreateSaleInput, type SaleDetail, type SaleItemInput } from "@shared/schemas/sales";
 import { ApiError, errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
@@ -286,12 +286,14 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
             <div>
               <div className="card-title">Facturación</div>
               <div className="muted small">
-                {invoiceUsage
-                  ? `Facturas este mes: ${invoiceUsage.issued} / ${invoiceUsage.limit} (${invoiceUsage.percent}%)`
-                  : "Emisión de documento de venta"}
+                {!invoiceUsage
+                  ? "Emisión de documento de venta"
+                  : INVOICE_LIMIT_ENABLED
+                    ? `Facturas este mes: ${invoiceUsage.issued} / ${invoiceUsage.limit} (${invoiceUsage.percent}%)`
+                    : `Facturas emitidas este mes: ${invoiceUsage.issued}`}
               </div>
             </div>
-            <Toggle checked={isInvoiced} onChange={onEdit(setIsInvoiced)} label="¿Facturar esta venta?" />
+            {INVOICING_OPTIONAL && <Toggle checked={isInvoiced} onChange={onEdit(setIsInvoiced)} label="¿Facturar esta venta?" />}
           </div>
 
           {isInvoiced && (
