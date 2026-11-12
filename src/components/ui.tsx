@@ -349,7 +349,8 @@ export function FormError({ message }: { message: string }) {
   return <div className="cf-warning form-error" role="alert"><Icon name="bell" size="sm" /><span>{message}</span></div>;
 }
 
-export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean }) {
+/** `wide`: para formularios con tablas o varias columnas que no caben en el ancho normal. */
+export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false, wide = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean; wide?: boolean }) {
   if (!open) return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-scrim" aria-hidden="true" /><div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-scrim" aria-hidden="true" /><div className={wide ? "modal modal-wide" : "modal"} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
 }

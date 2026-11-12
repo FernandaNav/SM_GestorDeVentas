@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button, Card, Icon, UnstyledButton } from "@/components/ui";
 import logo from "@/imports/solomotos-logo.png";
 import { homePathFor } from "@/layout/navigation";
+import LoginSpeedLines from "@/pages/login/LoginSpeedLines";
 
 export default function LoginPage() {
   const { user, login } = useAuth();
@@ -45,6 +46,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <div className="login-art">
+        <LoginSpeedLines />
         <div className="login-brand">
           <img className="brand-logo" src={logo} alt="SoloMotos" />
           <span>Sistema de Ventas</span>

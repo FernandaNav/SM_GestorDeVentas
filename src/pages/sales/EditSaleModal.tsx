@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CF_MAX_INVOICE_TOTAL, type PaymentMethod, type SaleItemOrigin } from "@shared/constants";
+import { CF_MAX_INVOICE_TOTAL, INVOICING_OPTIONAL, type PaymentMethod, type SaleItemOrigin } from "@shared/constants";
 import { updateSaleSchema, type SaleDetail, type UpdateSaleInput } from "@shared/schemas/sales";
 import { errorMessage } from "@/api/client";
 import { salesApi } from "@/api/sales";
@@ -221,6 +221,7 @@ export default function EditSaleModal({
       onConfirm={handleSave}
       confirmLabel={saving ? "Guardando..." : "Guardar cambios"}
       confirmDisabled={saving || loading}
+      wide
     >
       {/* Fuera del área con scroll para que se vea aunque se haya bajado hasta el final */}
       {error && <FormError message={error} />}
@@ -230,8 +231,9 @@ export default function EditSaleModal({
           <p style={{ marginTop: "10px" }}>Cargando datos de la venta...</p>
         </div>
       ) : (
-        <div className="screen-stack" style={{ gap: "16px", maxHeight: "calc(100vh - 300px)", overflowY: "auto", paddingRight: "6px" }}>
-          <div className="form-grid two">
+        <div className="screen-stack" style={{ gap: "16px", maxHeight: "calc(100vh - 300px)", overflowY: "auto", overflowX: "hidden", paddingRight: "6px" }}>
+          {/* El selector de pago ocupa lo que necesita y el vendedor el resto, para que no se corte */}
+          <div className="form-grid" style={{ gridTemplateColumns: "minmax(0, 1fr) auto" }}>
             <Select
               label="Vendedor"
               value={currentSellerName}
@@ -251,13 +253,22 @@ export default function EditSaleModal({
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--color-line)" }}>
-            <div>
-              <strong style={{ fontSize: "14px" }}>Factura</strong>
-              <div style={{ fontSize: "13px", color: "var(--color-muted)" }}>¿Esta venta fue facturada?</div>
+          {/* Temporal: con INVOICING_OPTIONAL en false todo se factura y no se puede quitar la factura (ver shared/constants.ts) */}
+          {INVOICING_OPTIONAL ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--color-line)" }}>
+              <div>
+                <strong style={{ fontSize: "14px" }}>Factura</strong>
+                <div style={{ fontSize: "13px", color: "var(--color-muted)" }}>¿Esta venta fue facturada?</div>
+              </div>
+              <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="Facturada" />
             </div>
-            <Toggle checked={isInvoiced} onChange={setIsInvoiced} label="Facturada" />
-          </div>
+          ) : (
+            isInvoiced && (
+              <div style={{ paddingTop: "10px", borderTop: "1px solid var(--color-line)" }}>
+                <strong style={{ fontSize: "14px" }}>Datos del cliente</strong>
+              </div>
+            )
+          )}
 
           {isInvoiced && (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", background: "var(--color-surface-soft)", padding: "12px", borderRadius: "var(--radius-sm)" }}>

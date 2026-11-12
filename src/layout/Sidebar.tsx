@@ -42,15 +42,6 @@ export default function Sidebar({ role, collapsed, onToggle }: { role: Role; col
           );
         })}
       </nav>
-      <div className="sidebar-help" title={collapsed ? "¿Necesitas ayuda? Contacta al administrador" : undefined}>
-        <div className="sidebar-help-icon">
-          <Icon name="wrench" size="sm" />
-        </div>
-        <div>
-          <strong>¿Necesitas ayuda?</strong>
-          <span>Contacta al administrador</span>
-        </div>
-      </div>
     </aside>
   );
 }
