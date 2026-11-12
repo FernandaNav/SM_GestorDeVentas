@@ -67,3 +67,13 @@ export type CommissionItem = {
   /** El período de la venta ya se cerró: no se puede modificar (RF 7.2) */
   isClosed: boolean;
 };
+
+/** Lo que avisa la campanita: comisiones que faltan por asignar en períodos abiertos. */
+export type PendingCommissionsSummary = {
+  pendingItems: number;
+  pendingSales: number;
+  /** Día (AAAA-MM-DD) de la venta pendiente más antigua; null si no hay pendientes */
+  oldestDay: string | null;
+  /** El artículo pendiente más reciente: si sube, llegó algo nuevo desde la última vez que se vio */
+  latestItemId: number | null;
+};

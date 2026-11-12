@@ -4,6 +4,7 @@ import { Icon, IconButton } from "@/components/ui";
 import { useCurrentDate } from "@/hooks/useCurrentDate";
 import { capitalize, LONG_DATE_FORMAT, SHORT_DATE_FORMAT } from "@/lib/format";
 import { NAV_ITEMS } from "./navigation";
+import NotificationBell from "./NotificationBell";
 import { useTheme } from "./theme";
 
 export default function Header({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
@@ -26,7 +27,8 @@ export default function Header({ user, onLogout }: { user: SessionUser; onLogout
           <span className="date-long">{formattedLongDate}</span>
           <span className="date-short">{capitalize(SHORT_DATE_FORMAT.format(today))}</span>
         </div>
-        <IconButton icon="bell" label="Notificaciones" />
+        {/* Las comisiones solo las asigna el Administrador: al Empleado no hay nada que avisarle */}
+        {user.role === "Administrador" && <NotificationBell />}
         <IconButton icon={dark ? "sun" : "moon"} label={dark ? "Tema claro" : "Tema oscuro"} onClick={() => setDark(!dark)} />
         <div className="user-menu" title={user.role}>
           <div className="avatar">

@@ -774,6 +774,25 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     it("solo el Administrador lo consulta", async () => {
       assert.equal((await employee("GET", itemsRoute("&pageSize=2"))).status, 403);
     });
+
+    it("la campanita resume las pendientes y baja al asignarlas", async () => {
+      const { status, data } = await admin("GET", "/commissions/pending-summary");
+      assert.equal(status, 200);
+      assert.ok(data.pendingSales >= 3);
+      assert.ok(data.pendingItems >= data.pendingSales);
+      assert.ok(data.oldestDay <= today);
+
+      const { data: pending } = await admin("GET", itemsRoute("&status=pendientes&pageSize=100"));
+      assert.equal(data.latestItemId, Math.max(...pending.items.map((item: any) => item.id)));
+
+      await admin("POST", "/commissions/assign", { itemIds: [pending.items[0].id], commissionRate: 3 });
+      const { data: after } = await admin("GET", "/commissions/pending-summary");
+      assert.equal(after.pendingItems, data.pendingItems - 1);
+    });
+
+    it("la campanita es solo del Administrador", async () => {
+      assert.equal((await employee("GET", "/commissions/pending-summary")).status, 403);
+    });
   });
 
   describe("categorías en Configuración", () => {
@@ -913,6 +932,10 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     const { data: period } = await admin("GET", "/closures/open");
     const closure = await admin("POST", "/closures", { periodStart: period.periodStart, periodEnd: period.today });
     assert.equal(closure.status, 201);
+
+    // Las pendientes de un período cerrado ya no se pueden asignar: la campanita deja de contarlas
+    const { data: bell } = await admin("GET", "/commissions/pending-summary");
+    assert.deepEqual(bell, { pendingItems: 0, pendingSales: 0, oldestDay: null, latestItemId: null });
 
     assert.equal((await admin("PUT", `/sales/${sale.id}`, editPayload(sale, 500))).status, 409);
     assert.equal((await admin("DELETE", `/sales/${sale.id}`)).status, 409);

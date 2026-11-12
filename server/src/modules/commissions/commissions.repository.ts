@@ -98,3 +98,20 @@ export async function findItemsByIds(db: Queryable, ids: number[]): Promise<Comm
   const { rows } = await db.query<CommissionItem>(`SELECT ${ITEM_COLUMNS} ${ITEM_FROM} WHERE i.id = ANY($1) ORDER BY i.id`, [ids]);
   return rows;
 }
+
+/** Comisiones sin asignar que todavía se pueden asignar (las de períodos cerrados ya no). */
+export async function findPendingSummary(
+  db: Queryable,
+): Promise<{ pendingItems: number; pendingSales: number; oldest: Date | null; latestItemId: number | null }> {
+  const { rows } = await db.query<{ pendingItems: number; pendingSales: number; oldest: Date | null; latestItemId: number | null }>(
+    `SELECT count(*)::int AS "pendingItems",
+            count(DISTINCT s.id)::int AS "pendingSales",
+            min(s.sold_at) AS oldest,
+            max(i.id)::int AS "latestItemId"
+     FROM sales s
+     JOIN sale_items i ON i.sale_id = s.id
+     WHERE i.commission_rate IS NULL
+       AND NOT ${inClosedPeriod("s.sold_at")}`,
+  );
+  return rows[0];
+}

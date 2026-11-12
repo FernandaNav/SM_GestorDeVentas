@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import type { CommissionItem } from "@shared/schemas/commissions";
 import { ApiError } from "@/api/client";
 import { commissionsApi } from "@/api/commissions";
-import { toApiDay } from "@/api/reports";
+import { fromApiDay, toApiDay } from "@/api/reports";
 import Pagination from "@/components/Pagination";
 import Segmented from "@/components/Segmented";
 import { type DateRange, DateRangePicker, fmtRangeLong, presetRange } from "@/components/dates";
@@ -26,6 +27,7 @@ export default function CommissionsPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [assigning, setAssigning] = useState<CommissionItem[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const apiRange = { from: toApiDay(range.start), to: toApiDay(range.end) };
   const rangeKey = `${apiRange.from}:${apiRange.to}`;
@@ -58,6 +60,20 @@ export default function CommissionsPage() {
     resetSelection();
     setPage(1);
   };
+
+  // Desde la campanita: ?pendientes=1&desde=AAAA-MM-DD muestra solo las pendientes, desde la más antigua
+  useEffect(() => {
+    if (searchParams.get("pendientes") !== "1") return;
+    const today = presetRange("Este mes").end;
+    const from = searchParams.get("desde");
+    const start = from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? fromApiDay(from) : presetRange("Este mes").start;
+    setRange({ start: start > today ? today : start, end: today });
+    setStatus("Pendientes");
+    setSellerId(null);
+    setSelected(new Set());
+    setPage(1);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
   const toggle = (id: number) =>
     setSelected((prev) => {
       const next = new Set(prev);

@@ -1,10 +1,23 @@
 import type { Request } from "express";
 import type { DateRange, Page, Pagination } from "@shared/schemas/common";
-import type { AssignCommissionInput, CommissionFilters, CommissionItem, CommissionSellerSummary } from "@shared/schemas/commissions";
+import type {
+  AssignCommissionInput,
+  CommissionFilters,
+  CommissionItem,
+  CommissionSellerSummary,
+  PendingCommissionsSummary,
+} from "@shared/schemas/commissions";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
+import { businessDayOf } from "../../lib/dates";
 import { HttpError } from "../../lib/http-error";
 import * as commissionsRepository from "./commissions.repository";
+
+/** Resumen para la campanita de notificaciones. */
+export async function getPendingSummary(): Promise<PendingCommissionsSummary> {
+  const { oldest, ...counts } = await commissionsRepository.findPendingSummary(pool);
+  return { ...counts, oldestDay: oldest ? businessDayOf(oldest) : null };
+}
 
 export function listSellers(range: DateRange): Promise<CommissionSellerSummary[]> {
   return commissionsRepository.findSellerSummaries(pool, range);

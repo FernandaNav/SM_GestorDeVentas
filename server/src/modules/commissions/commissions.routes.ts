@@ -9,6 +9,11 @@ export const commissionsRouter = Router();
 
 commissionsRouter.use(requireRole("Administrador"));
 
+// Para la campanita: cuántas comisiones faltan por asignar (solo de períodos abiertos)
+commissionsRouter.get("/pending-summary", async (_req, res) => {
+  res.json(await commissionsService.getPendingSummary());
+});
+
 // ?from=AAAA-MM-DD&to=AAAA-MM-DD
 commissionsRouter.get("/sellers", async (req, res) => {
   const { from, to } = commissionFiltersSchema.parse(req.query);

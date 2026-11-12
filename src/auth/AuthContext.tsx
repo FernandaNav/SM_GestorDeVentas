@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Role } from "@shared/constants";
 import type { SessionUser } from "@shared/schemas/auth";
 import { api, setUnauthorizedHandler, tokenStorage } from "@/api/client";
+import { forgetNotificationsSeen } from "@/layout/NotificationBell";
 
 type AuthState = {
   /** null = sin sesión. undefined = todavía verificando el token guardado. */
@@ -34,6 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (role: Role, password: string) => {
     const result = await api.post<{ user: SessionUser; token: string }>("/auth/login", { role, password });
     tokenStorage.set(result.token);
+    // Iniciar sesión cuenta como volver a avisar de las comisiones pendientes (campanita)
+    forgetNotificationsSeen();
     setUser(result.user);
   }, []);
 
