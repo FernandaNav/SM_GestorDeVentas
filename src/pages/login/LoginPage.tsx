@@ -6,7 +6,9 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button, Card, Icon, UnstyledButton } from "@/components/ui";
 import logo from "@/imports/solomotos-logo.png";
 import { homePathFor } from "@/layout/navigation";
+import { supportMailUrl } from "@/lib/support";
 import LoginSpeedLines from "@/pages/login/LoginSpeedLines";
+import RecoverAccess from "@/pages/login/RecoverAccess";
 
 export default function LoginPage() {
   const { user, login } = useAuth();
@@ -16,6 +18,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // El Administrador olvidó su contraseña: la tarjeta cambia al formulario del código de recuperación
+  const [recovering, setRecovering] = useState(false);
 
   // Con sesión iniciada (o al terminar el login) va a la pantalla que intentaba abrir, o a su inicio
   if (user) {
@@ -43,6 +47,8 @@ export default function LoginPage() {
     }
   };
 
+  const openSupportMail = () => window.open(supportMailUrl({ role: selectedRole, page: "Inicio de sesión" }), "_blank", "noopener,noreferrer");
+
   return (
     <main className="login-page">
       <div className="login-art">
@@ -64,61 +70,89 @@ export default function LoginPage() {
       </div>
       <div className="login-panel">
         <Card className="login-card">
-          <div className="login-title">Bienvenido</div>
-          <div className="muted">Selecciona tu perfil e ingresa tu contraseña.</div>
-          <div className="vertical-form">
-            <div className="field">
-              <span className="field-label">Perfil de acceso</span>
-              <div className="login-role-seg">
-                <UnstyledButton
-                  className={selectedRole === "Administrador" ? "login-role-btn selected" : "login-role-btn"}
-                  onClick={() => handleRoleSelect("Administrador")}
-                >
-                  <Icon name="settings" size="sm" />
-                  <span>Administrador</span>
-                </UnstyledButton>
-                <UnstyledButton
-                  className={selectedRole === "Empleado" ? "login-role-btn selected" : "login-role-btn"}
-                  onClick={() => handleRoleSelect("Empleado")}
-                >
-                  <Icon name="users" size="sm" />
-                  <span>Empleado</span>
-                </UnstyledButton>
+          {recovering ? (
+            <RecoverAccess
+              onDone={() => {
+                setRecovering(false);
+                setSelectedRole("Administrador");
+                setPassword("");
+                setErrorMessage(null);
+              }}
+              onContactSupport={openSupportMail}
+            />
+          ) : (
+            <>
+              <div className="login-title">Bienvenido</div>
+              <div className="muted">Selecciona tu perfil e ingresa tu contraseña.</div>
+              <div className="vertical-form">
+                <div className="field">
+                  <span className="field-label">Perfil de acceso</span>
+                  <div className="login-role-seg">
+                    <UnstyledButton
+                      className={selectedRole === "Administrador" ? "login-role-btn selected" : "login-role-btn"}
+                      onClick={() => handleRoleSelect("Administrador")}
+                    >
+                      <Icon name="settings" size="sm" />
+                      <span>Administrador</span>
+                    </UnstyledButton>
+                    <UnstyledButton
+                      className={selectedRole === "Empleado" ? "login-role-btn selected" : "login-role-btn"}
+                      onClick={() => handleRoleSelect("Empleado")}
+                    >
+                      <Icon name="users" size="sm" />
+                      <span>Empleado</span>
+                    </UnstyledButton>
+                  </div>
+                </div>
+                <div className="field">
+                  <span className="field-label">Contraseña</span>
+                  <span className={`input-shell${errorMessage ? " has-error" : ""}`}>
+                    <Icon name="lock" size="sm" />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      placeholder="••••••••"
+                      autoFocus
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        setErrorMessage(null);
+                      }}
+                      onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()}
+                    />
+                    <button
+                      type="button"
+                      className="eye-btn"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    >
+                      <Icon name="eye" size="sm" />
+                    </button>
+                  </span>
+                  {errorMessage && <span className="field-error">{errorMessage}</span>}
+                  <div className="login-help">
+                    {selectedRole === "Administrador" ? (
+                      <button type="button" className="picker-link" onClick={() => setRecovering(true)}>
+                        ¿Olvidaste tu contraseña?
+                      </button>
+                    ) : (
+                      <span className="muted small">¿Olvidaste tu contraseña? Pídele al administrador que la cambie.</span>
+                    )}
+                  </div>
+                </div>
+                <Button onClick={handleLoginSubmit} disabled={loading}>
+                  {loading ? "Verificando..." : "Ingresar"}
+                </Button>
+                <div className="login-help" style={{ alignItems: "center", textAlign: "center" }}>
+                  <span className="muted small">
+                    ¿Problemas para entrar?{" "}
+                    <button type="button" className="picker-link" onClick={openSupportMail}>
+                      Escríbenos
+                    </button>
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="field">
-              <span className="field-label">Contraseña</span>
-              <span className={`input-shell${errorMessage ? " has-error" : ""}`}>
-                <Icon name="lock" size="sm" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  placeholder="••••••••"
-                  autoFocus
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setErrorMessage(null);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()}
-                />
-                <button
-                  type="button"
-                  className="eye-btn"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
-                >
-                  <Icon name="eye" size="sm" />
-                </button>
-              </span>
-              {errorMessage && <span className="field-error">{errorMessage}</span>}
-              <div className="forgot-pw">
-                <span className="muted small">¿Olvidaste tu contraseña? Contacta al administrador.</span>
-              </div>
-            </div>
-            <Button onClick={handleLoginSubmit} disabled={loading}>
-              {loading ? "Verificando..." : "Ingresar"}
-            </Button>
-          </div>
+            </>
+          )}
         </Card>
       </div>
     </main>

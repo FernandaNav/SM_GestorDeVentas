@@ -57,5 +57,11 @@ Vite redirige `/api` al backend, así que en el navegador solo se abre `http://l
 1. En Render: **New > Blueprint** y elegir este repositorio (despliega la rama `main`).
 2. Cuando lo pida, pegar en `DATABASE_URL` la cadena del **Session pooler** de Supabase. `JWT_SECRET` la genera Render.
 3. La base ya debe tener las migraciones aplicadas (`pnpm db:migrate` desde una computadora con el `.env`).
+   Si un cambio trae una migración nueva en `server/db/migrations/`, hay que correr `pnpm db:migrate` **antes** de fusionarlo a `main`.
+
+### Acceso y soporte
+
+- Si el Administrador olvida su contraseña, la cambia desde el login con su **código de recuperación** (se crea en Configuración y sirve una sola vez).
+- "¿Necesitas ayuda?" del menú lateral y "Escríbenos" del login abren Gmail con un correo para `soporte.gestorventas@gmail.com`.
 
 En el plan gratuito el servicio se duerme tras 15 minutos sin uso: la primera visita después tarda cerca de un minuto.

@@ -15,6 +15,16 @@ export const changePasswordSchema = z.object({
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
+/** Recuperar la contraseña del Administrador con su código de recuperación, desde el login. */
+export const recoverPasswordSchema = z.object({
+  code: z.string().trim().min(1, "Escribe el código de recuperación"),
+  newPassword: changePasswordSchema.shape.newPassword,
+});
+export type RecoverPasswordInput = z.infer<typeof recoverPasswordSchema>;
+
+/** Si el Administrador ya tiene un código guardado y desde cuándo (nunca se devuelve el código). */
+export type RecoveryCodeStatus = { hasCode: boolean; createdAt: string | null };
+
 /** Usuario de la sesión: lo que viaja dentro del token y lo que recibe el frontend. */
 export type SessionUser = {
   id: number;

@@ -58,7 +58,7 @@ button { cursor: pointer; }
 .brand-full { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .brand .brand-compact { display: none; }
 /* Mientras el menú se abre o se cierra, que los textos no se partan en dos líneas */
-.nav-item span, .brand-full { white-space: nowrap; overflow: hidden; }
+.nav-item span, .sidebar-help-text, .brand-full { white-space: nowrap; overflow: hidden; }
 .brand { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 0 10px 30px; }
 .brand-logo { display: block; width: 100%; height: auto; }
 .brand .brand-logo { width: 200px; max-width: 100%; }
@@ -74,6 +74,16 @@ button { cursor: pointer; }
 .nav-item:hover { color: white; background: var(--color-sidebar-soft); }
 .nav-item.active { color: white; background: var(--color-primary); box-shadow: 0 6px 16px rgb(var(--color-primary-rgb) / 22%); }
 .app-main { min-width: 0; width: calc(100% - 248px); margin-left: 248px; transition: margin-left .2s ease, width .2s ease; }
+/* ¿Necesitas ayuda?: enlace que abre Gmail para escribir a soporte */
+.sidebar-help { border-top: 1px solid #30333a; padding: 20px 8px 4px; display: flex; gap: 10px; align-items: center; color: inherit; text-decoration: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); transition: color .15s; }
+.sidebar-help:hover .sidebar-help-icon, .sidebar-help:focus-visible .sidebar-help-icon { background: var(--color-primary); color: white; }
+.sidebar-help:hover strong { color: white; }
+.sidebar-help-icon { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--color-sidebar-soft); color: var(--color-primary); transition: background .15s, color .15s; }
+.sidebar-help-text strong, .sidebar-help-text span { display: block; }
+.sidebar-help-text strong { font-size: 12px; }
+.sidebar-help-text span { color: #9da2ab; font-size: 11px; margin-top: 3px; }
+.app-shell.sidebar-collapsed .sidebar-help { justify-content: center; padding: 20px 0 4px; }
+.app-shell.sidebar-collapsed .sidebar-help-text { display: none; }
 .app-shell.sidebar-collapsed .sidebar { width: 76px; padding: 28px 12px 20px; }
 .app-shell.sidebar-collapsed .app-main { width: calc(100% - 76px); margin-left: 76px; }
 .app-shell.sidebar-collapsed .sidebar-toggle .icon { transform: none; }
@@ -339,6 +349,12 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 @keyframes login-road { to { background-position: -120px 0; } }
 @media (prefers-reduced-motion: reduce) { .login-glow, .login-road { animation: none; } .login-streak { display: none; } }
 
+/* ── código de recuperación (login y Configuración) ──────────────────────── */
+.recovery-box { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.recovery-code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 26px; font-weight: 700; letter-spacing: .12em; text-align: center; padding: 16px 12px; border-radius: var(--radius-sm); background: var(--color-surface-soft); border: 1px dashed var(--color-line); color: var(--color-text); user-select: all; }
+.login-help { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-top: 4px; text-align: right; }
+.login-help .picker-link { padding: 2px 0; white-space: normal; text-align: right; }
+
 /* ── login role selector ──────────────────────────────────────────────────── */
 .login-role-seg { display: flex; gap: 0; border: 1px solid var(--color-line); border-radius: var(--radius-sm); overflow: hidden; }
 .login-role-btn { flex: 1; min-height: 46px; border: 0; background: white; color: var(--color-muted); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 13px; transition: .18s ease; }
@@ -351,7 +367,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; padding-
 .eye-btn:hover { color: var(--color-primary); }
 
 /* forgot password */
-.forgot-pw { text-align: right; margin-top: 4px; }
 .forgot-link { border: 0; background: transparent; color: var(--color-primary); font-size: 13px; padding: 0; cursor: pointer; }
 .forgot-link:hover { text-decoration: underline; }
 
