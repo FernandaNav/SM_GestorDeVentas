@@ -713,6 +713,62 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("código de recuperación del Administrador", () => {
+    const me = (token: string) => call(token, "GET", "/auth/me");
+    const recover = (code: string, newPassword: string) => call(null, "POST", "/auth/recover", { code, newPassword });
+    const CODE_FORMAT = /^[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}$/;
+    let latestCode: string;
+
+    it("sin un código guardado no se puede recuperar", async () => {
+      assert.deepEqual((await admin("GET", "/auth/recovery-code")).data, { hasCode: false, createdAt: null });
+      assert.equal((await recover("ABCD-EFGH-JKMN", "otra-contraseña")).status, 401);
+    });
+
+    it("solo el administrador consulta y genera el código", async () => {
+      assert.equal((await employee("GET", "/auth/recovery-code")).status, 403);
+      assert.equal((await employee("POST", "/auth/recovery-code")).status, 403);
+    });
+
+    it("con el código cambia la contraseña, cierra las sesiones y el código se gasta", async () => {
+      const { status, data } = await admin("POST", "/auth/recovery-code");
+      assert.equal(status, 200);
+      assert.match(data.recoveryCode, CODE_FORMAT);
+      const saved = (await admin("GET", "/auth/recovery-code")).data;
+      assert.equal(saved.hasCode, true);
+      assert.ok(saved.createdAt);
+
+      const previous = adminToken;
+      // Se acepta escrito en minúsculas y sin guiones
+      const recovered = await recover(data.recoveryCode.toLowerCase().replaceAll("-", ""), "recuperada-del-admin");
+      assert.equal(recovered.status, 200);
+      assert.match(recovered.data.recoveryCode, CODE_FORMAT);
+      assert.notEqual(recovered.data.recoveryCode, data.recoveryCode);
+      latestCode = recovered.data.recoveryCode;
+
+      assert.equal((await me(previous)).status, 401, "la sesión abierta se cierra");
+      const relogin = await call(null, "POST", "/auth/login", { role: "Administrador", password: "recuperada-del-admin" });
+      assert.equal(relogin.status, 200);
+      adminToken = relogin.data.token;
+
+      assert.equal((await recover(data.recoveryCode, "otra-contraseña")).status, 401, "el código usado ya no sirve");
+      const { rows } = await pool.query("SELECT user_role FROM audit_log WHERE action = 'recuperar_contraseña'");
+      assert.deepEqual(rows, [{ user_role: "Administrador" }]);
+    });
+
+    it("una contraseña corta se rechaza sin gastar el código", async () => {
+      assert.equal((await recover(latestCode, "corta")).status, 400);
+      assert.equal((await admin("GET", "/auth/recovery-code")).data.hasCode, true);
+    });
+
+    // Va al último: deja bloqueada la recuperación en esta corrida
+    it("tras cinco códigos equivocados bloquea la recuperación, aunque el código sea correcto", async () => {
+      for (let attempt = 0; attempt < 5; attempt++) await recover("XXXX-XXXX-XXXX", "otra-contraseña");
+      const blocked = await recover(latestCode, "otra-contraseña");
+      assert.equal(blocked.status, 429);
+      assert.match(blocked.data.error, /Demasiados intentos/);
+    });
+  });
+
   describe("dashboard", () => {
     it("responde al administrador y no al empleado", async () => {
       const { status, data } = await admin("GET", "/reports/dashboard");

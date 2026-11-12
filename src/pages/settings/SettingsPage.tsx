@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { INVOICE_LIMIT_ENABLED, ROLES, type Role } from "@shared/constants";
 import { changePasswordSchema } from "@shared/schemas/auth";
 import { categoryCommissionSchema, categoryCreateSchema, settingsInputSchema } from "@shared/schemas/settings";
+import { authApi } from "@/api/auth";
 import { categoriesApi } from "@/api/categories";
 import { ApiError } from "@/api/client";
 import { settingsApi } from "@/api/settings";
+import RecoveryCodeBox from "@/components/RecoveryCodeBox";
 import { Badge, Button, Card, GlassToggle, Icon, Select, TextArea, TextInput } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import logo from "@/imports/solomotos-logo.png";
@@ -206,6 +208,28 @@ export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSet
     }
   };
 
+  // ─── código de recuperación del Administrador ─────────────────────────────
+  const { data: recoveryStatus, refetch: refetchRecoveryStatus } = useApiQuery("auth:recovery-code", authApi.recoveryStatus, { poll: false });
+  // El código recién creado: solo se ve aquí, hasta salir de Configuración
+  const [newRecoveryCode, setNewRecoveryCode] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [creatingCode, setCreatingCode] = useState(false);
+
+  const handleCreateRecoveryCode = async () => {
+    if (recoveryStatus?.hasCode && !window.confirm("¿Crear un código nuevo? El código anterior dejará de servir.")) return;
+    setRecoveryError(null);
+    setCreatingCode(true);
+    try {
+      const { recoveryCode } = await authApi.createRecoveryCode();
+      setNewRecoveryCode(recoveryCode);
+      await refetchRecoveryStatus();
+    } catch (err) {
+      setRecoveryError(err instanceof ApiError ? err.message : "No se pudo crear el código");
+    } finally {
+      setCreatingCode(false);
+    }
+  };
+
   const statusLine = (status: Status) =>
     status.error ? <div className="cf-warning">{status.error}</div> : status.ok ? <div className="muted small">✓ {status.ok}</div> : null;
 
@@ -303,7 +327,7 @@ export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSet
 
         <Card className="form-card">
           <div className="card-title">Contraseñas</div>
-          <div className="muted small">No hay recuperación por correo: el administrador cambia la contraseña de cada cuenta.</div>
+          <div className="muted small">El administrador cambia la contraseña de cada cuenta. Si olvida la suya, usa el código de recuperación.</div>
           <div className="vertical-form">
             <Select
               label="Cuenta"
@@ -328,6 +352,33 @@ export default function SettingsPage({ dark, onSetDark }: { dark: boolean; onSet
             {statusLine(passwordStatus)}
             <Button icon="lock" onClick={handleChangePassword} disabled={savingPassword || !newPassword}>
               {savingPassword ? "Guardando..." : "Cambiar contraseña"}
+            </Button>
+          </div>
+        </Card>
+
+        <Card className="form-card">
+          <div className="card-title">Código de recuperación</div>
+          <div className="muted small">
+            Si el Administrador olvida su contraseña, la cambia desde el inicio de sesión con este código. Cada código sirve una
+            sola vez.
+          </div>
+          <div className="vertical-form">
+            {recoveryStatus && (
+              <div>
+                {recoveryStatus.hasCode ? (
+                  <Badge tone="success">
+                    Código guardado desde el{" "}
+                    {new Date(recoveryStatus.createdAt!).toLocaleDateString("es-GT", { day: "numeric", month: "long", year: "numeric" })}
+                  </Badge>
+                ) : (
+                  <Badge tone="warning">Todavía no hay código: crea uno y guárdalo</Badge>
+                )}
+              </div>
+            )}
+            {newRecoveryCode && <RecoveryCodeBox code={newRecoveryCode} />}
+            {recoveryError && <div className="cf-warning">{recoveryError}</div>}
+            <Button icon="lock" variant={recoveryStatus?.hasCode ? "secondary" : undefined} onClick={handleCreateRecoveryCode} disabled={creatingCode}>
+              {creatingCode ? "Creando..." : recoveryStatus?.hasCode ? "Crear un código nuevo" : "Crear código"}
             </Button>
           </div>
         </Card>
