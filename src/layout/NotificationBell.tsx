@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { commissionsApi } from "@/api/commissions";
+import { inventoryApi } from "@/api/inventory";
 import { fromApiDay } from "@/api/reports";
 import { Icon } from "@/components/ui";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -8,7 +9,8 @@ import { paths } from "./navigation";
 
 // Qué fue lo último que se vio en la campanita, guardado en el navegador de cada computadora
 const STORAGE_KEY = "solomotos.notifications";
-type Seen = { latestItemId: number; at: number };
+/** lowStock: cuántos productos estaban bajos al abrirla (si aumentan, vuelve a avisar) */
+type Seen = { latestItemId: number; at: number; lowStock?: number };
 
 /** El negocio cierra a las 6 pm: a las 5 pm se vuelve a avisar para revisar antes del cierre. */
 const REMINDER_HOUR = 17;
@@ -52,7 +54,8 @@ const DAY_FORMAT = new Intl.DateTimeFormat("es-GT", { day: "numeric", month: "lo
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Campanita del encabezado (solo Administrador): avisa de las comisiones pendientes de asignar.
+ * Campanita del encabezado (solo Administrador): avisa de las comisiones pendientes de asignar
+ * y de los productos del inventario con existencias bajas.
  * Para no molestar, el número naranja solo aparece cuando hay pendientes nuevas desde la última vez
  * que se abrió, al iniciar sesión, la primera vez del día y otra vez a las 5 pm (antes del cierre
  * de las 6) si siguen quedando pendientes. Recargar la página no cuenta como iniciar sesión. Al abrirla se marca como vista. Como la computadora del Administrador se queda
@@ -61,6 +64,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export default function NotificationBell() {
   const navigate = useNavigate();
   const { data } = useApiQuery("commissions:pending-summary", commissionsApi.pendingSummary);
+  const { data: inventory } = useApiQuery("inventory:summary", inventoryApi.summary);
   const [seen, setSeen] = useState<Seen | null>(readSeen);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -74,10 +78,15 @@ export default function NotificationBell() {
 
   const pending = data?.pendingSales ?? 0;
   const latestItemId = data?.latestItemId ?? 0;
-  const unread = pending > 0 && (!seen || latestItemId > seen.latestItemId || seen.at < lastReminder(now));
+  const lowStock = inventory?.lowStock ?? 0;
+  const remind = !seen || seen.at < lastReminder(now);
+  const unreadCommissions = pending > 0 && (remind || latestItemId > seen!.latestItemId);
+  const unreadStock = lowStock > 0 && (remind || lowStock > (seen!.lowStock ?? 0));
+  const unread = unreadCommissions || unreadStock;
+  const alerts = pending + lowStock;
 
   const markSeen = () => {
-    const next = { latestItemId, at: Date.now() };
+    const next = { latestItemId, at: Date.now(), lowStock };
     setSeen(next);
     saveSeen(next);
   };
@@ -111,13 +120,20 @@ export default function NotificationBell() {
     navigate(`${paths.commissions}?${params}`);
   };
 
-  const label = unread ? `Notificaciones: ${plural(pending, "venta", "ventas")} con comisión pendiente` : "Notificaciones";
+  const goToInventory = () => {
+    setOpen(false);
+    navigate(`${paths.inventory}?bajas=1`);
+  };
+
+  const label = unread
+    ? `Notificaciones: ${[pending > 0 && `${plural(pending, "venta", "ventas")} con comisión pendiente`, lowStock > 0 && `${plural(lowStock, "producto", "productos")} con existencias bajas`].filter(Boolean).join(" y ")}`
+    : "Notificaciones";
 
   return (
     <div className="notif-wrap" ref={wrapRef}>
       <button type="button" className={`icon-button notif-button${open ? " is-open" : ""}`} aria-label={label} title={label} aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>
         <Icon name="bell" size="sm" />
-        {unread && <span className="notif-badge">{pending > 99 ? "99+" : pending}</span>}
+        {unread && <span className="notif-badge">{alerts > 99 ? "99+" : alerts}</span>}
       </button>
 
       {open && (
@@ -128,12 +144,14 @@ export default function NotificationBell() {
           </div>
           {!data ? (
             <div className="notif-empty">Cargando…</div>
-          ) : pending === 0 ? (
+          ) : pending === 0 && lowStock === 0 ? (
             <div className="notif-empty">
               <Icon name="check" size="sm" />
-              <span>Todo al día: no hay comisiones pendientes de asignar.</span>
+              <span>Todo al día: no hay comisiones pendientes ni existencias bajas.</span>
             </div>
           ) : (
+            <>
+            {pending > 0 && (
             <div className="notif-item">
               <div className="notif-icon">
                 <Icon name="coins" size="sm" />
@@ -151,6 +169,22 @@ export default function NotificationBell() {
                 </button>
               </div>
             </div>
+            )}
+            {lowStock > 0 && (
+              <div className="notif-item">
+                <div className="notif-icon">
+                  <Icon name="box" size="sm" />
+                </div>
+                <div className="notif-text">
+                  <strong>{plural(lowStock, "producto", "productos")} con existencias bajas</strong>
+                  <span>En su mínimo o por debajo{inventory && inventory.outOfStock > 0 && ` · ${inventory.outOfStock} agotados`}</span>
+                  <button type="button" className="picker-link notif-action" onClick={goToInventory}>
+                    Revisar inventario
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}

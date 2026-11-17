@@ -11,6 +11,9 @@ export type InvoiceItemData = {
   cat?: string;
   qty: number;
   price: number;
+  /** Motos: chasis y motor de la unidad vendida (la tienda entrega la moto con ellos en la factura) */
+  serial?: string | null;
+  engine?: string | null;
 };
 
 /** Factura de una venta ya registrada. */
@@ -35,6 +38,8 @@ export function SaleInvoice({
         cat: item.categoryName,
         qty: item.quantity,
         price: item.unitPrice,
+        serial: item.unitSerial,
+        engine: item.engineNumber,
       }))}
       paymentMethod={sale.paymentMethod}
       seller={sale.sellerName}
@@ -177,6 +182,12 @@ export default function InvoicePreview({
               <span>
                 <strong>{item.desc || "Artículo"}</strong>
                 {item.cat && <small>{item.cat}</small>}
+                {item.serial && (
+                  <small className="invoice-serial">
+                    Chasis: {item.serial}
+                    {item.engine && ` · Motor: ${item.engine}`}
+                  </small>
+                )}
               </span>
               <span>{formatQuetzales(item.price)}</span>
               <span>

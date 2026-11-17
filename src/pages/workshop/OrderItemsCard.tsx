@@ -5,8 +5,10 @@ import {
   type WorkshopItemKind,
   type WorkshopOrderItem,
 } from "@shared/schemas/workshop";
+import type { ProductOption } from "@shared/schemas/inventory";
 import { ApiError } from "@/api/client";
 import { useCatalog } from "@/catalog/CatalogContext";
+import ProductPicker from "@/components/ProductPicker";
 import Segmented from "@/components/Segmented";
 import { Badge, Button, Card, Icon, Select } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
@@ -34,15 +36,27 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
   const [categoryName, setCategoryName] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
+  // Repuesto elegido del inventario: se aparta al agregarlo y la categoría la pone el producto
+  const [product, setProduct] = useState<ProductOption | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
-  const category =
-    categories.find((c) => c.name === categoryName) ?? categories.find((c) => c.name === DEFAULT_CATEGORY[kind]) ?? categories[0];
+  const category = product
+    ? categories.find((c) => c.id === product.categoryId)
+    : (categories.find((c) => c.name === categoryName) ?? categories.find((c) => c.name === DEFAULT_CATEGORY[kind]) ?? categories[0]);
+  const short = product !== null && Number(quantity) > product.stock;
+
+  const pickProduct = (option: ProductOption) => {
+    setProduct(option);
+    setDescription(option.name);
+    setUnitPrice(String(option.salePrice));
+    setErrors({});
+  };
 
   const handleKindChange = (label: string) => {
     setKind(label === "Repuesto" ? "repuesto" : "servicio");
     setCategoryName("");
+    setProduct(null);
   };
 
   const handleAdd = async () => {
@@ -52,9 +66,14 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
       categoryId: category?.id,
       quantity: Number(quantity),
       unitPrice: unitPrice.trim() ? Number(unitPrice.replace(/[^0-9.]/g, "")) : undefined,
+      productId: product?.id,
     });
     if (!parsed.success) {
       setErrors(issuesToErrors(parsed.error.issues));
+      return;
+    }
+    if (short) {
+      setErrors({ _form: `Solo quedan ${product.stock} de "${product.name}"` });
       return;
     }
     setBusy(true);
@@ -63,6 +82,7 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
       setDescription("");
       setQuantity("1");
       setUnitPrice("");
+      setProduct(null);
       setErrors({});
     } catch (error) {
       setErrors(error instanceof ApiError ? { ...error.fields, _form: error.message } : { _form: "No se pudo agregar" });
@@ -104,15 +124,30 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
               <tbody>
                 <tr>
                   <td>
-                    <input
-                      className="cell-input wide"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder={kind === "servicio" ? "Ej. Cambio de aceite" : "Ej. Filtro de aceite"}
-                    />
+                    {/* Solo los repuestos buscan en el inventario; un servicio se escribe libre */}
+                    {kind === "servicio" ? (
+                      <input className="cell-input wide" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ej. Cambio de aceite" />
+                    ) : (
+                      <ProductPicker value={description} linked={product !== null} partsOnly onChange={setDescription} onPick={pickProduct} />
+                    )}
+                    {product && (
+                      <div className="item-stock">
+                        <span className="tag">
+                          <Icon name="box" size="sm" /> Inventario
+                        </span>
+                        <span className={short ? "is-short" : undefined}>{short ? `Solo quedan ${product.stock}` : `Quedan ${product.stock}`}</span>
+                        <button type="button" className="unlink" onClick={() => setProduct(null)}>
+                          Quitar del inventario
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td>
-                    <Select compact ariaLabel="Categoría" value={category?.name ?? ""} options={categories.map((c) => c.name)} onChange={setCategoryName} />
+                    {product ? (
+                      <span className="cell-locked">{category?.name ?? "—"}</span>
+                    ) : (
+                      <Select compact ariaLabel="Categoría" value={category?.name ?? ""} options={categories.map((c) => c.name)} onChange={setCategoryName} />
+                    )}
                   </td>
                   <td>
                     <input className="cell-input narrow" type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
@@ -166,7 +201,10 @@ export default function OrderItemsCard({ items, total, editable, onAdd, onRemove
               {items.map((item) => (
                 <tr key={item.id}>
                   <td><Badge tone={item.kind === "servicio" ? "info" : "neutral"}>{KIND_LABELS[item.kind]}</Badge></td>
-                  <td><strong>{item.description}</strong></td>
+                  <td>
+                    <strong>{item.description}</strong>
+                    {item.productId && <div className="muted small">Apartado del inventario</div>}
+                  </td>
                   <td>{item.categoryName ?? "—"}</td>
                   <td>{item.quantity}</td>
                   <td>{formatQuetzales(item.unitPrice)}</td>

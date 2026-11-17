@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import type { Role } from "@shared/constants";
 import type { Product } from "@shared/schemas/inventory";
 import { ApiError } from "@/api/client";
@@ -31,6 +32,7 @@ export default function InventoryPage({ role }: { role: Role }) {
   const [categoryName, setCategoryName] = useState(ALL);
   const [status, setStatus] = useState<StatusLabel>("Activos");
   const [lowOnly, setLowOnly] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
 
@@ -73,6 +75,15 @@ export default function InventoryPage({ role }: { role: Role }) {
       setActionError(err instanceof ApiError ? err.message : "No se pudo cambiar el estado");
     }
   };
+
+  // Desde la campanita: ?bajas=1 abre la lista con solo las existencias bajas
+  useEffect(() => {
+    if (searchParams.get("bajas") !== "1") return;
+    setLowOnly(true);
+    setStatus("Activos");
+    setPage(1);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const hasFilters = Boolean(filters.search || filters.categoryId || lowOnly || status !== "Activos");
 

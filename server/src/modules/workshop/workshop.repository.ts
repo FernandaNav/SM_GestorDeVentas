@@ -108,7 +108,8 @@ export async function findById(db: Queryable, id: number, { forUpdate = false } 
 export async function findItems(db: Queryable, orderId: number): Promise<WorkshopOrderItem[]> {
   const { rows } = await db.query<WorkshopOrderItem>(
     `SELECT i.id, i.kind, i.description, i.category_id AS "categoryId", c.name AS "categoryName",
-            i.quantity, i.unit_price AS "unitPrice", round(i.quantity * i.unit_price, 2) AS subtotal
+            i.quantity, i.unit_price AS "unitPrice", round(i.quantity * i.unit_price, 2) AS subtotal,
+            i.product_id AS "productId"
      FROM workshop_order_items i
      LEFT JOIN categories c ON c.id = i.category_id
      WHERE i.order_id = $1
@@ -150,10 +151,10 @@ export async function insertOrder(db: Queryable, input: CreateWorkshopOrderInput
 
 export async function insertItem(db: Queryable, orderId: number, item: WorkshopItemInput): Promise<WorkshopOrderItem> {
   const { rows } = await db.query<{ id: number }>(
-    `INSERT INTO workshop_order_items (order_id, kind, description, category_id, quantity, unit_price)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO workshop_order_items (order_id, kind, description, category_id, quantity, unit_price, product_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
-    [orderId, item.kind, item.description, item.categoryId, item.quantity, item.unitPrice],
+    [orderId, item.kind, item.description, item.categoryId, item.quantity, item.unitPrice, item.productId ?? null],
   );
   const items = await findItems(db, orderId);
   return items.find((saved) => saved.id === rows[0].id)!;

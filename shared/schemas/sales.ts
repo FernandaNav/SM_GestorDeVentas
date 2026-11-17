@@ -28,6 +28,10 @@ export const saleItemInputSchema = z.object({
    * Solo lo toma en cuenta si quien registra es Administrador.
    */
   commissionRate: z.number().min(0, "Mínimo 0 %").max(100, "Máximo 100 %").nullable().optional(),
+  /** Producto del inventario. Sin él, la línea es libre (servicios, cobros especiales) y no mueve existencias. */
+  productId: z.number().int().positive("Producto inválido").optional(),
+  /** Para las motos: la unidad (chasis) que se vende. La cantidad debe ser 1. */
+  unitId: z.number().int().positive("Unidad inválida").optional(),
 });
 export type SaleItemInput = z.infer<typeof saleItemInputSchema>;
 
@@ -164,6 +168,12 @@ export type SaleItem = {
   origin: SaleItemOrigin;
   commissionRate?: number | null;
   commissionAmount?: number | null;
+  /** Producto del inventario de esta línea; null = línea escrita a mano */
+  productId: number | null;
+  /** Moto vendida en esta línea, con su chasis y motor para la factura */
+  unitId: number | null;
+  unitSerial: string | null;
+  engineNumber: string | null;
 };
 
 export type SaleDetail = {

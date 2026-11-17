@@ -1186,6 +1186,161 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("inventario en ventas y taller", () => {
+    let filterId: number;
+    let bikeId: number;
+    let bikeUnits: { id: number; serial: string }[];
+
+    const stockOf = async (id: number) => (await admin("GET", `/inventory/products/${id}`)).data.stock as number;
+    const movementsOf = async (id: number) => (await admin("GET", `/inventory/products/${id}/movements?pageSize=100`)).data.items as any[];
+    const salesCount = async () => (await pool.query<{ total: number }>(`SELECT count(*)::int AS total FROM sales`)).rows[0].total;
+    const productSale = (items: unknown[]) => ({ sellerId, paymentMethod: "Efectivo", isInvoiced: false, items });
+    /** Lo que manda Editar venta: cada línea con su origen, producto y unidad. */
+    const editItems = (sale: any, change: (item: any) => any = (item) => item) =>
+      sale.items.map((item: any) =>
+        change({
+          description: item.description,
+          categoryId: item.categoryId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          commissionRate: item.commissionRate,
+          origin: item.origin,
+          productId: item.productId ?? undefined,
+          unitId: item.unitId ?? undefined,
+        }),
+      );
+    const edit = (sale: any, items: unknown[]) =>
+      admin("PUT", `/sales/${sale.id}`, { sellerId: sale.sellerId, paymentMethod: sale.paymentMethod, isInvoiced: false, items });
+
+    before(async () => {
+      const motoCategoryId = (await pool.query<{ id: number }>(`SELECT id FROM categories WHERE name = 'Moto usada'`)).rows[0].id;
+      const filter = await admin("POST", "/inventory/products", { name: "Filtro de aceite FX", categoryId: accessoryId, salePrice: 50, minStock: 2, tracksUnits: false });
+      filterId = filter.data.id;
+      await admin("POST", `/inventory/products/${filterId}/entries`, { quantity: 10 });
+      const bike = await admin("POST", "/inventory/products", { name: "Yamaha FZ 2026", categoryId: motoCategoryId, salePrice: 21000, minStock: 0, tracksUnits: true });
+      bikeId = bike.data.id;
+      const entry = await admin("POST", `/inventory/products/${bikeId}/entries`, { units: [{ serial: "YFZ0001", engineNumber: "MTR0001" }, { serial: "YFZ0002" }] });
+      bikeUnits = entry.data.units;
+    });
+
+    it("vender descuenta existencias, y la moto queda vendida con su chasis en la venta", async () => {
+      const { status, data: sale } = await employee(
+        "POST",
+        "/sales",
+        productSale([
+          // La categoría que manda la pantalla no importa: la pone el producto
+          { description: "Filtro de aceite FX", categoryId: serviceId, quantity: 2, unitPrice: 50, productId: filterId },
+          { description: "Yamaha FZ 2026", categoryId: accessoryId, quantity: 1, unitPrice: 20500, productId: bikeId, unitId: bikeUnits[0].id },
+          { description: "Calcomanía especial", categoryId: accessoryId, quantity: 1, unitPrice: 15 },
+        ]),
+      );
+      assert.equal(status, 201, "el Empleado también vende productos del inventario");
+      assert.equal(await stockOf(filterId), 8);
+      assert.equal(await stockOf(bikeId), 1);
+
+      const [filterLine, bikeLine, freeLine] = sale.items;
+      assert.equal(filterLine.categoryId, accessoryId);
+      assert.equal(bikeLine.unitSerial, "YFZ0001");
+      assert.equal(bikeLine.engineNumber, "MTR0001");
+      assert.equal(freeLine.productId, null, "las líneas escritas a mano siguen igual");
+      assert.equal((await movementsOf(filterId))[0].saleId, sale.id);
+
+      const again = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 1, productId: bikeId, unitId: bikeUnits[0].id }]));
+      assert.equal(again.status, 409, "la misma moto no se vende dos veces");
+    });
+
+    it("sin existencias suficientes no se guarda la venta ni cambia nada", async () => {
+      const before = await salesCount();
+      const short = await employee("POST", "/sales", productSale([{ description: "Filtro", categoryId: accessoryId, quantity: 99, unitPrice: 50, productId: filterId }]));
+      assert.equal(short.status, 409);
+      assert.match(short.data.error, /Solo quedan 8/);
+      assert.equal(await salesCount(), before);
+      assert.equal(await stockOf(filterId), 8);
+    });
+
+    it("las motos piden su chasis y van de una en una", async () => {
+      const noUnit = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 1, productId: bikeId }]));
+      assert.match(noUnit.data.error, /chasis/);
+      const two = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 2, unitPrice: 1, productId: bikeId, unitId: bikeUnits[1].id }]));
+      assert.match(two.data.error, /cantidad 1/);
+      const unitOnly = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 1, unitId: bikeUnits[1].id }]));
+      assert.equal(unitOnly.status, 400);
+    });
+
+    it("editar mueve solo la diferencia, y quitar la línea la devuelve", async () => {
+      const { data: sale } = await admin("POST", "/sales", productSale([{ description: "Filtro", categoryId: accessoryId, quantity: 2, unitPrice: 50, productId: filterId }]));
+      assert.equal(await stockOf(filterId), 6);
+
+      const more = await edit(sale, editItems(sale, (item) => ({ ...item, quantity: 5 })));
+      assert.equal(more.status, 200);
+      assert.equal(await stockOf(filterId), 3);
+
+      const movements = (await movementsOf(filterId)).length;
+      const samePrice = await edit(more.data, editItems(more.data, (item) => ({ ...item, unitPrice: 45 })));
+      assert.equal(samePrice.status, 200);
+      assert.equal((await movementsOf(filterId)).length, movements, "si la cantidad no cambia, el kárdex no registra nada");
+
+      const freeLine = await edit(samePrice.data, [{ description: "Servicio", categoryId: serviceId, quantity: 1, unitPrice: 10 }]);
+      assert.equal(freeLine.status, 200);
+      assert.equal(await stockOf(filterId), 8);
+      assert.equal((await movementsOf(filterId))[0].kind, "devolucion_venta");
+    });
+
+    it("eliminar la venta devuelve existencias y la moto vuelve a estar disponible", async () => {
+      const { data: sale } = await admin(
+        "POST",
+        "/sales",
+        productSale([
+          { description: "Filtro", categoryId: accessoryId, quantity: 3, unitPrice: 50, productId: filterId },
+          { description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 20000, productId: bikeId, unitId: bikeUnits[1].id },
+        ]),
+      );
+      assert.equal(await stockOf(filterId), 5);
+      assert.equal(await stockOf(bikeId), 0);
+
+      assert.equal((await admin("DELETE", `/sales/${sale.id}`, { reason: "Prueba de inventario" })).status, 204);
+      assert.equal(await stockOf(filterId), 8);
+      assert.equal(await stockOf(bikeId), 1);
+      assert.ok((await admin("GET", `/inventory/products/${bikeId}/units`)).data.some((unit: any) => unit.id === bikeUnits[1].id));
+    });
+
+    it("taller: agregar aparta, quitar devuelve, cobrar no descuenta y eliminar su venta no devuelve", async () => {
+      const { data: order } = await admin("POST", "/workshop", { clientName: "Inventario", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+      const added = await employee("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Filtro FX", categoryId: serviceId, quantity: 3, unitPrice: 50, productId: filterId });
+      assert.equal(added.status, 201);
+      assert.equal(await stockOf(filterId), 5, "se aparta al agregarlo");
+      const part = added.data.items.find((item: any) => item.productId === filterId);
+      assert.equal(part.categoryId, accessoryId, "la categoría la pone el producto");
+
+      await employee("DELETE", `/workshop/${order.id}/items/${part.id}`);
+      assert.equal(await stockOf(filterId), 8, "regresa al quitarlo");
+
+      const bike = await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Moto", categoryId: accessoryId, quantity: 1, unitPrice: 1, productId: bikeId });
+      assert.match(bike.data.error, /repuesto/);
+      const tooMany = await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Filtro", categoryId: accessoryId, quantity: 99, unitPrice: 50, productId: filterId });
+      assert.equal(tooMany.status, 409);
+      assert.equal((await admin("GET", `/workshop/${order.id}`)).data.items.length, 0, "si no alcanza, no queda el repuesto en la orden");
+
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Filtro FX", categoryId: accessoryId, quantity: 2, unitPrice: 50, productId: filterId });
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "servicio", description: "Mano de obra", categoryId: serviceId, quantity: 1, unitPrice: 100 });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "En reparación" });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
+      const { data: charged } = await admin("POST", `/workshop/${order.id}/checkout`, { sellerId, paymentMethod: "Efectivo", isInvoiced: false });
+      assert.equal(await stockOf(filterId), 6, "cobrar no vuelve a descontar");
+      const soldPart = charged.sale.items.find((item: any) => item.productId === filterId);
+      assert.equal(soldPart.origin, "taller_repuesto");
+
+      const moreParts = await edit(charged.sale, editItems(charged.sale, (item) => (item.productId ? { ...item, quantity: 5 } : item)));
+      assert.equal(moreParts.status, 400, "los repuestos del taller no cambian de cantidad al editar la venta");
+      const newPrice = await edit(charged.sale, editItems(charged.sale, (item) => (item.productId ? { ...item, unitPrice: 55 } : item)));
+      assert.equal(newPrice.status, 200, "su precio sí");
+
+      await admin("DELETE", `/sales/${charged.sale.id}`, { reason: "Prueba de taller" });
+      assert.equal(await stockOf(filterId), 6, "siguen apartados para la orden");
+      assert.equal((await admin("GET", `/workshop/${order.id}`)).data.status, "Lista para entregar");
+    });
+  });
+
   // Va al final: el cierre deja en solo lectura todas las ventas creadas hasta aquí
   it("una venta cerrada no se edita ni se elimina, su orden no cambia y el historial la marca", async () => {
     const { orderId, sale } = await chargedWorkshopOrder();
