@@ -692,6 +692,23 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .notif-empty .icon { color: var(--color-success); flex: none; }
 [data-dark] .notif-popover { border-color: var(--color-line); }
 
+/* ── inventario ─────────────────────────────────────────────────────────── */
+.inventory-kpis { grid-template-columns: repeat(4, 1fr); }
+.inventory-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.inventory-filters > .field:first-child { flex: 1; min-width: 240px; }
+.inventory-filters .select-shell { min-width: 170px; }
+.inventory-notice { justify-content: space-between; align-items: center; margin-top: 14px; background: rgba(16, 185, 129, 0.12); color: var(--color-success); border-color: transparent; }
+.stock-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; white-space: nowrap; background: var(--color-surface-soft); color: var(--color-text); }
+.stock-pill.is-low { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.stock-pill.is-out { background: var(--color-danger-soft, #fee2e2); color: var(--color-danger); }
+tr.row-muted td { opacity: .6; }
+.unit-rows { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.unit-row { display: grid; grid-template-columns: 28px 1fr 1fr 38px; gap: 10px; align-items: start; }
+.unit-row-number { width: 28px; height: 42px; display: grid; place-items: center; font-weight: 700; color: var(--color-muted); }
+.retire-box { margin-top: 14px; padding: 16px; border: 1px solid var(--color-danger); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 12px; }
+[data-dark] .stock-pill.is-low { color: #fbbf24; }
+@media (max-width: 1100px) { .inventory-kpis { grid-template-columns: repeat(2, 1fr); } }
+
 /* ── selectores de fecha ───────────────────────────────────────────────────── */
 .picker { position: relative; }
 .picker-trigger { border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-text); border-radius: var(--radius-sm); min-height: 42px; padding: 0 12px; display: flex; align-items: center; gap: 9px; width: 100%; font: inherit; font-size: 13px; text-align: left; white-space: nowrap; cursor: pointer; transition: border-color .15s, box-shadow .15s; }

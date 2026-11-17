@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { HttpError } from "../lib/http-error";
 
-type PgError = Error & { code?: string; hint?: string };
+type PgError = Error & { code?: string; hint?: string; constraint?: string };
 
 // Todas las respuestas de error tienen la forma { error: string, fields?: {...} }.
 export function errorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction) {
@@ -26,6 +26,11 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
   }
   if (pgError.code === "23505") {
     res.status(409).json({ error: "Ya existe un registro con esos datos" });
+    return;
+  }
+  // Última defensa del inventario: la base nunca deja existencias negativas
+  if (pgError.code === "23514" && pgError.constraint === "products_stock_nonnegative") {
+    res.status(409).json({ error: "No hay existencias suficientes para completar la operación" });
     return;
   }
   if (pgError.code === "23503") {
