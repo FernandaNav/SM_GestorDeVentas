@@ -1100,6 +1100,12 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       assert.deepEqual(options.map((p: any) => p.id), [motoId], "busca también por chasis");
     });
 
+    it("% y _ se buscan como texto, no como comodines", async () => {
+      assert.equal((await employee("GET", "/inventory/products/search?q=%25")).data.length, 0);
+      assert.equal((await employee("GET", "/inventory/products/search?q=_")).data.length, 0);
+      assert.equal((await admin("GET", "/inventory/products?status=todos&search=%25")).data.totalItems, 0);
+    });
+
     it("el motor descuenta solo si alcanza, y si no, no cambia nada", async () => {
       await take({ productId: helmetId, quantity: 3 });
       assert.equal(await stockOf(helmetId), 5);

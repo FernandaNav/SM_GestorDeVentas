@@ -79,7 +79,7 @@ export default function ProductDetailModal({ productId, isAdmin, onClose, onChan
   };
 
   return (
-    <Modal open wide title={product ? product.name : "Producto"} onClose={onClose} onConfirm={onClose} confirmLabel="Cerrar">
+    <Modal open wide title={product ? product.name : "Producto"} onClose={onClose} onConfirm={onClose} confirmLabel="Cerrar" hideCancel>
       {detail.error && <FormError message={detail.error.message} />}
       {product && (
         <div className="screen-stack">

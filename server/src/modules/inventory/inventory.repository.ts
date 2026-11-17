@@ -26,7 +26,15 @@ const PRODUCT_WHERE = `
     AND ($3::text = 'todos' OR p.is_active = ($3::text = 'activos'))
     AND ($4::boolean IS NOT TRUE OR (p.min_stock > 0 AND p.stock <= p.min_stock))`;
 
-const filterParams = (filters: ProductFilters) => [filters.search || null, filters.categoryId ?? null, filters.status, filters.lowStock ?? null];
+/** Lo que escribe la persona se busca tal cual: % y _ no funcionan como comodines de ILIKE. */
+const likeText = (text: string) => text.replace(/[\\%_]/g, "\\$&");
+
+const filterParams = (filters: ProductFilters) => [
+  filters.search ? likeText(filters.search) : null,
+  filters.categoryId ?? null,
+  filters.status,
+  filters.lowStock ?? null,
+];
 
 export async function countProducts(db: Queryable, filters: ProductFilters): Promise<number> {
   const { rows } = await db.query<{ total: number }>(`SELECT count(*)::int AS total ${PRODUCT_FROM} ${PRODUCT_WHERE}`, filterParams(filters));
@@ -119,7 +127,7 @@ export async function searchProducts(db: Queryable, q: string, limit = 10): Prom
             OR EXISTS (SELECT 1 FROM product_units u WHERE u.product_id = p.id AND u.status = 'disponible' AND u.serial ILIKE '%' || $1 || '%'))
      ORDER BY (p.stock > 0) DESC, (p.code ILIKE $1 OR p.name ILIKE $1 || '%') DESC, lower(p.name)
      LIMIT $2`,
-    [q, limit],
+    [likeText(q), limit],
   );
   return rows;
 }

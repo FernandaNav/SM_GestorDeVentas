@@ -62,6 +62,9 @@ export default function InventoryPage({ role }: { role: Role }) {
   };
 
   const toggleActive = async (product: Product, isActive: boolean) => {
+    // Desactivar lo saca de la lista y de la venta: se confirma para que no pase por un clic sin querer
+    // (si se cancela, el interruptor regresa solo)
+    if (!isActive && !window.confirm(`¿Desactivar "${product.name}"? Dejará de ofrecerse al vender. Sus existencias y su historial se conservan.`)) return;
     setActionError(null);
     try {
       await inventoryApi.setActive(product.id, isActive);
@@ -75,19 +78,14 @@ export default function InventoryPage({ role }: { role: Role }) {
 
   return (
     <div className="screen-stack">
-      <div className="hero-row">
-        <div>
-          <div className="section-title">Inventario</div>
-          <div className="muted">
-            {isAdmin ? "Productos, existencias y motos por número de chasis." : "Consulta existencias y precios antes de vender."}
-          </div>
-        </div>
-        {isAdmin && (
+      {/* El nombre de la pantalla ya está en la barra superior: aquí solo va la acción */}
+      {isAdmin && (
+        <div className="hero-row hero-actions">
           <Button icon="plus" onClick={() => setEditing(null)}>
             Agregar producto
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {isAdmin && summary.data && (
         <div className="kpi-grid inventory-kpis">
@@ -143,8 +141,8 @@ export default function InventoryPage({ role }: { role: Role }) {
                   <tr>
                     <th>Producto</th>
                     <th>Categoría</th>
-                    <th>Precio</th>
-                    {isAdmin && <th>Costo</th>}
+                    <th className="num">Precio</th>
+                    {isAdmin && <th className="num">Costo</th>}
                     <th>Existencias</th>
                     {isAdmin && <th>Estado</th>}
                     <th>Acciones</th>
@@ -162,8 +160,8 @@ export default function InventoryPage({ role }: { role: Role }) {
                       <td>
                         <Badge>{product.categoryName}</Badge>
                       </td>
-                      <td style={{ whiteSpace: "nowrap" }}>{formatQuetzales(product.salePrice)}</td>
-                      {isAdmin && <td style={{ whiteSpace: "nowrap" }}>{product.cost != null ? formatQuetzales(product.cost) : "—"}</td>}
+                      <td className="num" style={{ whiteSpace: "nowrap" }}>{formatQuetzales(product.salePrice)}</td>
+                      {isAdmin && <td className="num" style={{ whiteSpace: "nowrap" }}>{product.cost != null ? formatQuetzales(product.cost) : "—"}</td>}
                       <td>
                         <span className={`stock-pill${product.stock === 0 ? " is-out" : product.isLow ? " is-low" : ""}`}>
                           {product.stock}
