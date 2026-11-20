@@ -146,7 +146,7 @@ button { cursor: pointer; }
 .btn-danger { color: var(--color-danger); background: var(--color-danger-soft); }
 .btn-ghost { color: var(--color-primary); background: transparent; padding-inline: 8px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
-.icon-button { border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-muted); border-radius: var(--radius-sm); width: 38px; height: 38px; display: grid; place-items: center; }
+.icon-button { border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-muted); border-radius: var(--radius-sm); width: 38px; height: 38px; display: grid; place-items: center; padding: 0; flex: none; } /* sin el relleno del navegador el ícono queda al centro */
 .icon-button:hover { color: var(--color-primary); border-color: var(--color-primary); }
 .full-button { width: 100%; }
 .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
@@ -191,7 +191,7 @@ button { cursor: pointer; }
 .select-popover li.selected { background: var(--color-primary-soft); color: var(--color-primary); font-weight: 650; }
 .select-popover li .icon { flex: none; }
 .select-popover li.select-empty { color: var(--color-muted); cursor: default; }
-textarea { width: 100%; resize: vertical; min-height: 88px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); outline: none; padding: 12px; color: var(--color-text); }
+textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 88px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); outline: none; padding: 12px; color: var(--color-text); background: var(--color-surface); }
 .has-error { border-color: var(--color-danger); }
 .field-error { color: var(--color-danger); font-size: 12px; }
 .bar-chart { height: 245px; display: grid; grid-template-columns: 52px 1fr; margin-top: 16px; }
@@ -691,6 +691,49 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .notif-empty { display: flex; align-items: center; gap: 8px; padding: 10px 8px; font-size: 12px; color: var(--color-muted); }
 .notif-empty .icon { color: var(--color-success); flex: none; }
 [data-dark] .notif-popover { border-color: var(--color-line); }
+
+/* ── inventario ─────────────────────────────────────────────────────────── */
+.inventory-kpis { grid-template-columns: repeat(4, 1fr); }
+.inventory-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.inventory-filters > .field:first-child { flex: 1; min-width: 240px; }
+.inventory-filters .select-shell { min-width: 170px; }
+.inventory-notice { align-items: center; margin-top: 14px; background: rgba(16, 185, 129, 0.12); color: var(--color-success); border-color: transparent; }
+.inventory-notice > span { flex: 1; }
+.inventory-notice.is-warning { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+[data-dark] .inventory-notice.is-warning { color: #fbbf24; }
+.stock-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; white-space: nowrap; background: var(--color-surface-soft); color: var(--color-text); }
+.stock-pill.is-low { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.stock-pill.is-out { background: var(--color-danger-soft, #fee2e2); color: var(--color-danger); }
+tr.row-muted td { opacity: .6; }
+.expense-option { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); }
+.unit-rows { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.unit-row { display: grid; grid-template-columns: 28px 1fr 1fr 38px; gap: 10px; align-items: start; }
+.unit-row-number { width: 28px; height: 42px; display: grid; place-items: center; font-weight: 700; color: var(--color-muted); }
+.correct-box { border-color: var(--color-primary); }
+.retire-box { margin-top: 14px; padding: 16px; border: 1px solid var(--color-danger); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 12px; }
+[data-dark] .stock-pill.is-low { color: #fbbf24; }
+@media (max-width: 1100px) { .inventory-kpis { grid-template-columns: repeat(2, 1fr); } }
+
+/* Chasis y motor de una moto en el documento de venta */
+.invoice-tr .invoice-serial { display: block; font-weight: 650; color: var(--color-text); }
+
+/* ── buscador de productos en ventas y taller (ProductPicker) ───────────── */
+.product-picker { position: fixed; z-index: 200; box-sizing: border-box; margin: 0; padding: 6px; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-line); border-radius: var(--radius-md); box-shadow: var(--shadow-float); }
+.product-option { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer; }
+.product-option.is-active { background: var(--color-primary-soft); }
+.product-option.is-out { cursor: not-allowed; opacity: .55; }
+.product-option-main, .product-option-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.product-option-main strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-option-side { align-items: flex-end; flex: none; font-size: 13px; }
+.product-option .stock-out { color: var(--color-danger); font-size: 12px; font-weight: 650; }
+/* Línea conectada al inventario: debajo de la descripción */
+.item-stock { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--color-muted); flex-wrap: wrap; }
+.item-stock .tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary); font-weight: 650; }
+.item-stock .is-short { color: var(--color-danger); font-weight: 650; }
+.item-stock .unlink { border: 0; background: transparent; color: var(--color-muted); font: inherit; font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline; }
+.item-stock .unlink:hover { color: var(--color-text); }
+.item-stock .unit-select { min-width: 190px; }
+.cell-locked { display: inline-block; padding: 6px 2px; font-size: 13px; color: var(--color-text); white-space: nowrap; }
 
 /* ── selectores de fecha ───────────────────────────────────────────────────── */
 .picker { position: relative; }

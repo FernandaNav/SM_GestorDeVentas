@@ -50,6 +50,8 @@ export const workshopItemInputSchema = z.object({
   categoryId: z.number({ message: "Elige una categoría" }).int().positive("Elige una categoría"),
   quantity: z.number({ message: "Ingresa la cantidad" }).int("La cantidad debe ser entera").min(1, "La cantidad mínima es 1").max(1000),
   unitPrice: money,
+  /** Repuesto del inventario: se aparta al agregarlo y regresa si se quita (sin él, la línea es libre) */
+  productId: z.number().int().positive("Producto inválido").optional(),
 });
 export type WorkshopItemInput = z.infer<typeof workshopItemInputSchema>;
 
@@ -121,6 +123,8 @@ export type WorkshopOrderItem = {
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  /** Repuesto del inventario apartado para esta orden; null = línea escrita a mano */
+  productId: number | null;
 };
 
 export type WorkshopOrderEvent = {

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { CF_MAX_INVOICE_TOTAL, INVOICING_OPTIONAL, type PaymentMethod, type SaleItemOrigin } from "@shared/constants";
+import type { ProductOption, ProductUnit } from "@shared/schemas/inventory";
 import { updateSaleSchema, type SaleDetail, type UpdateSaleInput } from "@shared/schemas/sales";
 import { errorMessage } from "@/api/client";
+import { inventoryApi } from "@/api/inventory";
 import { salesApi } from "@/api/sales";
 import { useCatalog } from "@/catalog/CatalogContext";
 import MoneyInput from "@/components/MoneyInput";
+import ProductPicker from "@/components/ProductPicker";
 import Segmented from "@/components/Segmented";
 import { FormError, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
@@ -19,7 +22,19 @@ type EditableItem = {
   commissionRate: string;
   /** Se conserva al guardar para no perder lo cobrado en taller. Un artículo nuevo no lo trae. */
   origin?: SaleItemOrigin;
+  /** Producto del inventario de la línea; sin él la línea es libre */
+  productId?: number;
+  /** Moto ya vendida en esta venta (su chasis), o la que se elija en una línea nueva */
+  unitId?: number;
+  unitSerial?: string | null;
+  /** Solo en líneas que se conectan al inventario durante esta edición */
+  stock?: number;
+  tracksUnits?: boolean;
+  units?: ProductUnit[];
 };
+
+/** Repuesto del inventario que viene del taller: ya es de su orden, solo se le puede cambiar el precio. */
+const isWorkshopPart = (item: EditableItem) => Boolean(item.productId && item.origin && item.origin !== "venta");
 
 export default function EditSaleModal({
   open,
@@ -88,6 +103,10 @@ export default function EditSaleModal({
             unitPrice: it.unitPrice,
             commissionRate: it.commissionRate !== null && it.commissionRate !== undefined ? String(it.commissionRate) : "",
             origin: it.origin,
+            productId: it.productId ?? undefined,
+            unitId: it.unitId ?? undefined,
+            unitSerial: it.unitSerial,
+            tracksUnits: it.unitId ? true : undefined,
           })),
         );
       })
@@ -102,6 +121,33 @@ export default function EditSaleModal({
       active = false;
     };
   }, [open, saleId]);
+
+  const patchItem = (id: number, patch: Partial<EditableItem>) => {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  };
+
+  // Igual que en Nueva venta: el producto llena la línea y, si es moto, se elige su chasis
+  const pickProduct = async (id: number, option: ProductOption) => {
+    patchItem(id, {
+      description: option.name,
+      categoryId: option.categoryId,
+      unitPrice: option.salePrice,
+      productId: option.id,
+      stock: option.stock,
+      tracksUnits: option.tracksUnits,
+      units: undefined,
+      unitId: undefined,
+      unitSerial: undefined,
+      ...(option.tracksUnits && { quantity: 1 }),
+    });
+    if (option.tracksUnits) {
+      const units = await inventoryApi.availableUnits(option.id).catch(() => []);
+      setItems((prev) => prev.map((it) => (it.id === id && it.productId === option.id ? { ...it, units } : it)));
+    }
+  };
+
+  const unlink = (id: number) =>
+    patchItem(id, { productId: undefined, unitId: undefined, unitSerial: undefined, stock: undefined, tracksUnits: undefined, units: undefined });
 
   const updateItem = (id: number, field: keyof EditableItem, val: string | number) => {
     setItems((prev) =>
@@ -157,6 +203,16 @@ export default function EditSaleModal({
       setError("La venta debe tener al menos un artículo.");
       return;
     }
+    const missingUnit = items.find((it) => it.tracksUnits && !it.unitId);
+    if (missingUnit) {
+      setError(`Elige el número de chasis de "${missingUnit.description}"`);
+      return;
+    }
+    const short = items.find((it) => it.stock !== undefined && !it.tracksUnits && it.quantity > it.stock);
+    if (short) {
+      setError(`Solo quedan ${short.stock} de "${short.description}"`);
+      return;
+    }
 
     const saleItems: UpdateSaleInput["items"] = items.map((it) => {
       const parsedComm = parseFloat(it.commissionRate);
@@ -167,6 +223,8 @@ export default function EditSaleModal({
         unitPrice: it.unitPrice,
         commissionRate: isNaN(parsedComm) ? null : parsedComm,
         origin: it.origin,
+        productId: it.productId,
+        unitId: it.unitId,
       };
     });
 
@@ -350,23 +408,66 @@ export default function EditSaleModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it) => (
+                  {items.map((it) => {
+                    const workshopPart = isWorkshopPart(it);
+                    const short = !it.tracksUnits && it.stock !== undefined && it.quantity > it.stock;
+                    return (
                     <tr key={it.id}>
                       <td>
-                        <input
-                          className="cell-input"
-                          value={it.description}
-                          onChange={(e) => updateItem(it.id, "description", e.target.value)}
-                        />
+                        {workshopPart ? (
+                          <input className="cell-input" value={it.description} onChange={(e) => updateItem(it.id, "description", e.target.value)} />
+                        ) : (
+                          <ProductPicker
+                            value={it.description}
+                            linked={Boolean(it.productId)}
+                            onChange={(description) => patchItem(it.id, { description })}
+                            onPick={(option) => pickProduct(it.id, option)}
+                          />
+                        )}
+                        {it.productId && (
+                          <div className="item-stock">
+                            <span className="tag">
+                              <Icon name="box" size="sm" /> {workshopPart ? "Repuesto del taller" : "Inventario"}
+                            </span>
+                            {it.unitSerial ? (
+                              <span>Chasis {it.unitSerial}</span>
+                            ) : it.tracksUnits ? (
+                              <span className="unit-select">
+                                <Select
+                                  compact
+                                  ariaLabel="Número de chasis"
+                                  value={it.unitId ? String(it.unitId) : ""}
+                                  options={[
+                                    { value: "", label: it.units ? (it.units.length > 0 ? "Elige el chasis" : "Sin motos disponibles") : "Cargando chasis..." },
+                                    ...(it.units ?? []).map((unit) => ({ value: String(unit.id), label: unit.serial })),
+                                  ]}
+                                  onChange={(value) => patchItem(it.id, { unitId: value ? Number(value) : undefined })}
+                                />
+                              </span>
+                            ) : it.stock !== undefined ? (
+                              <span className={short ? "is-short" : undefined}>{short ? `Solo quedan ${it.stock}` : `Quedan ${it.stock}`}</span>
+                            ) : null}
+                            {!workshopPart && (
+                              <button type="button" className="unlink" onClick={() => unlink(it.id)}>
+                                Quitar del inventario
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <Select
-                          compact
-                          ariaLabel="Categoría"
-                          value={String(it.categoryId)}
-                          options={categoryOptions.map((c) => ({ value: String(c.id), label: c.name }))}
-                          onChange={(value) => updateItem(it.id, "categoryId", Number(value))}
-                        />
+                        {/* Con producto, la categoría la pone el inventario */}
+                        {it.productId ? (
+                          <span className="cell-locked">{categoryOptions.find((c) => c.id === it.categoryId)?.name ?? "—"}</span>
+                        ) : (
+                          <Select
+                            compact
+                            ariaLabel="Categoría"
+                            value={String(it.categoryId)}
+                            options={categoryOptions.map((c) => ({ value: String(c.id), label: c.name }))}
+                            onChange={(value) => updateItem(it.id, "categoryId", Number(value))}
+                          />
+                        )}
                       </td>
                       <td>
                         <input
@@ -374,6 +475,8 @@ export default function EditSaleModal({
                           type="number"
                           min={1}
                           value={it.quantity}
+                          disabled={it.tracksUnits || workshopPart}
+                          title={workshopPart ? "Viene del taller: la cantidad se cambia en la orden" : it.tracksUnits ? "Cada moto va en su propia línea" : undefined}
                           onChange={(e) => updateItem(it.id, "quantity", Math.max(1, Number(e.target.value)))}
                         />
                       </td>
@@ -389,12 +492,20 @@ export default function EditSaleModal({
                         />
                       </td>
                       <td>
-                        <button type="button" className="icon-button" onClick={() => removeItem(it.id)}>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() => removeItem(it.id)}
+                          disabled={workshopPart}
+                          aria-label="Quitar"
+                          title={workshopPart ? "Viene del taller: se quita en la orden" : undefined}
+                        >
                           <Icon name="trash" size="sm" />
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

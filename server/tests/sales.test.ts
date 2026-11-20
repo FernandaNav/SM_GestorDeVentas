@@ -982,6 +982,490 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("inventario", () => {
+    let inventory: typeof import("../src/modules/inventory/inventory.service");
+    let withTransaction: typeof import("../src/db/pool").withTransaction;
+    let adminReq: any;
+    let helmetId: number;
+    let motoId: number;
+    let motoCategoryId: number;
+
+    before(async () => {
+      inventory = await import("../src/modules/inventory/inventory.service");
+      ({ withTransaction } = await import("../src/db/pool"));
+      const { rows } = await pool.query<{ id: number }>(`SELECT id FROM users WHERE role = 'Administrador'`);
+      // El motor de existencias solo usa el usuario de la sesión para el kárdex
+      adminReq = { user: { id: rows[0].id, username: "admin", role: "Administrador" }, ip: "127.0.0.1" };
+      motoCategoryId = (await pool.query<{ id: number }>(`SELECT id FROM categories WHERE name = 'Moto nueva'`)).rows[0].id;
+    });
+
+    const stockOf = async (id: number) => (await admin("GET", `/inventory/products/${id}`)).data.stock as number;
+    const take = (line: { productId: number; quantity: number; unitId?: number }, kind: "venta" | "taller" = "venta") =>
+      withTransaction((db) => inventory.takeStock(db, adminReq, line, kind, { saleId: 999 }));
+
+    it("el administrador da de alta productos; el empleado no", async () => {
+      const helmet = await admin("POST", "/inventory/products", {
+        name: "  Casco   LS2 Stream ",
+        code: "CAS-001",
+        categoryId: accessoryId,
+        salePrice: 950,
+        cost: 600,
+        minStock: 3,
+        tracksUnits: false,
+      });
+      assert.equal(helmet.status, 201);
+      assert.equal(helmet.data.name, "Casco LS2 Stream");
+      assert.equal(helmet.data.stock, 0);
+      helmetId = helmet.data.id;
+
+      const moto = await admin("POST", "/inventory/products", {
+        name: "Honda CB190R 2026",
+        categoryId: motoCategoryId,
+        salePrice: 24500,
+        minStock: 1,
+        tracksUnits: true,
+      });
+      assert.equal(moto.status, 201);
+      motoId = moto.data.id;
+
+      const fromEmployee = await employee("POST", "/inventory/products", { name: "Del empleado", categoryId: accessoryId, salePrice: 1, minStock: 0, tracksUnits: false });
+      assert.equal(fromEmployee.status, 403);
+    });
+
+    it("no permite nombres ni códigos repetidos", async () => {
+      const byName = await admin("POST", "/inventory/products", { name: "casco ls2 stream", categoryId: accessoryId, salePrice: 1, minStock: 0, tracksUnits: false });
+      assert.equal(byName.status, 409);
+      assert.match(byName.data.error, /Ya existe el producto/);
+      const byCode = await admin("POST", "/inventory/products", { name: "Otro casco", code: "cas-001", categoryId: accessoryId, salePrice: 1, minStock: 0, tracksUnits: false });
+      assert.equal(byCode.status, 409);
+      assert.match(byCode.data.error, /código/);
+    });
+
+    it("una entrada suma existencias, actualiza el costo y queda en el kárdex", async () => {
+      const entry = await admin("POST", `/inventory/products/${helmetId}/entries`, { quantity: 10, unitCost: 620, note: "Factura proveedor 123" });
+      assert.equal(entry.status, 201);
+      assert.equal(entry.data.stock, 10);
+      assert.equal(entry.data.cost, 620);
+
+      const { data: kardex } = await admin("GET", `/inventory/products/${helmetId}/movements`);
+      assert.equal(kardex.items[0].kind, "entrada");
+      assert.equal(kardex.items[0].quantity, 10);
+      assert.equal(kardex.items[0].stockAfter, 10);
+      assert.equal((await employee("GET", `/inventory/products/${helmetId}/movements`)).status, 403);
+    });
+
+    it("las motos entran una por una con su chasis, sin repetirlo", async () => {
+      const noUnits = await admin("POST", `/inventory/products/${motoId}/entries`, { quantity: 2 });
+      assert.equal(noUnits.status, 400);
+
+      const repeatedInRequest = await admin("POST", `/inventory/products/${motoId}/entries`, { units: [{ serial: "ABC123" }, { serial: "abc123" }] });
+      assert.equal(repeatedInRequest.status, 400);
+
+      const entry = await admin("POST", `/inventory/products/${motoId}/entries`, {
+        units: [{ serial: "9C2KC1610TR000111", engineNumber: "KC16E-001" }, { serial: "9c2kc1610tr000222" }],
+        unitCost: 19000,
+      });
+      assert.equal(entry.status, 201);
+      assert.equal(entry.data.stock, 2);
+      assert.deepEqual(entry.data.units.map((u: any) => u.serial), ["9C2KC1610TR000111", "9C2KC1610TR000222"]);
+
+      const again = await admin("POST", `/inventory/products/${motoId}/entries`, { units: [{ serial: "9C2KC1610TR000111" }] });
+      assert.equal(again.status, 409);
+      assert.match(again.data.error, /9C2KC1610TR000111/);
+      assert.equal(await stockOf(motoId), 2);
+    });
+
+    it("el ajuste por conteo deja las existencias reales con su motivo", async () => {
+      const adjusted = await admin("POST", `/inventory/products/${helmetId}/adjustments`, { countedStock: 8, reason: "Conteo físico de fin de mes" });
+      assert.equal(adjusted.status, 201);
+      assert.equal(adjusted.data.stock, 8);
+      const { data: kardex } = await admin("GET", `/inventory/products/${helmetId}/movements`);
+      assert.equal(kardex.items[0].kind, "ajuste");
+      assert.equal(kardex.items[0].quantity, -2);
+      assert.equal(kardex.items[0].note, "Conteo físico de fin de mes");
+
+      assert.equal((await admin("POST", `/inventory/products/${helmetId}/adjustments`, { countedStock: 8, reason: "Igual" })).status, 400);
+      assert.equal((await admin("POST", `/inventory/products/${motoId}/adjustments`, { countedStock: 0, reason: "No aplica" })).status, 400);
+    });
+
+    it("el empleado consulta productos y existencias, pero nunca el costo", async () => {
+      const { status, data } = await employee("GET", "/inventory/products?search=casco");
+      assert.equal(status, 200);
+      assert.equal(data.items[0].stock, 8);
+      assert.equal(data.items[0].cost, undefined);
+      assert.equal((await employee("GET", `/inventory/products/${helmetId}`)).data.cost, undefined);
+      assert.equal((await employee("GET", "/inventory/summary")).status, 403);
+
+      const { data: options } = await employee("GET", "/inventory/products/search?q=000222");
+      assert.deepEqual(options.map((p: any) => p.id), [motoId], "busca también por chasis");
+    });
+
+    it("% y _ se buscan como texto, no como comodines", async () => {
+      assert.equal((await employee("GET", "/inventory/products/search?q=%25")).data.length, 0);
+      assert.equal((await employee("GET", "/inventory/products/search?q=_")).data.length, 0);
+      assert.equal((await admin("GET", "/inventory/products?status=todos&search=%25")).data.totalItems, 0);
+    });
+
+    it("el motor descuenta solo si alcanza, y si no, no cambia nada", async () => {
+      await take({ productId: helmetId, quantity: 3 });
+      assert.equal(await stockOf(helmetId), 5);
+
+      await assert.rejects(take({ productId: helmetId, quantity: 6 }), /Solo quedan 5/);
+      assert.equal(await stockOf(helmetId), 5, "la transacción fallida no tocó las existencias");
+
+      const { data: kardex } = await admin("GET", `/inventory/products/${helmetId}/movements`);
+      assert.equal(kardex.items[0].kind, "venta");
+      assert.equal(kardex.items[0].saleId, 999);
+    });
+
+    it("dos ventas a la vez no pueden llevarse la última pieza", async () => {
+      const results = await Promise.allSettled([take({ productId: helmetId, quantity: 3 }), take({ productId: helmetId, quantity: 3 })]);
+      assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+      assert.equal(await stockOf(helmetId), 2);
+    });
+
+    it("una moto se vende una sola vez y regresa al devolverla", async () => {
+      const [unit] = (await admin("GET", `/inventory/products/${motoId}/units`)).data;
+      await assert.rejects(take({ productId: motoId, quantity: 1 }), /chasis/);
+      await assert.rejects(take({ productId: motoId, quantity: 1, unitId: unit.id }, "taller"), /repuesto/);
+
+      const sells = await Promise.allSettled([take({ productId: motoId, quantity: 1, unitId: unit.id }), take({ productId: motoId, quantity: 1, unitId: unit.id })]);
+      assert.equal(sells.filter((r) => r.status === "fulfilled").length, 1, "la misma moto no se vende dos veces");
+      assert.equal(await stockOf(motoId), 1);
+      assert.ok(!(await admin("GET", `/inventory/products/${motoId}/units`)).data.some((u: any) => u.id === unit.id));
+
+      await withTransaction((db) => inventory.returnStock(db, adminReq, { productId: motoId, quantity: 1, unitId: unit.id }, "devolucion_venta", { saleId: 999 }));
+      assert.equal(await stockOf(motoId), 2);
+    });
+
+    it("una moto disponible se corrige o se da de baja con motivo", async () => {
+      const units = (await admin("GET", `/inventory/products/${motoId}/units`)).data;
+      const fixed = await admin("PATCH", `/inventory/units/${units[1].id}`, { serial: "9C2KC1610TR000333" });
+      assert.equal(fixed.status, 200);
+      assert.equal(fixed.data.serial, "9C2KC1610TR000333");
+      assert.equal((await admin("PATCH", `/inventory/units/${units[1].id}`, { serial: units[0].serial })).status, 409);
+
+      const retired = await admin("POST", `/inventory/units/${units[1].id}/retire`, { reason: "Llegó dañada, se devolvió al proveedor" });
+      assert.equal(retired.status, 200);
+      assert.equal(retired.data.status, "baja");
+      assert.equal(await stockOf(motoId), 1);
+      assert.equal((await admin("POST", `/inventory/units/${units[1].id}/retire`, { reason: "Otra vez" })).status, 409);
+    });
+
+    it("un producto desactivado no se ofrece ni se vende, pero se puede devolver", async () => {
+      assert.equal((await admin("PATCH", `/inventory/products/${helmetId}/active`, { isActive: false })).status, 200);
+      assert.equal((await employee("GET", "/inventory/products/search?q=casco")).data.length, 0);
+      assert.equal((await employee("GET", `/inventory/products/${helmetId}`)).status, 404);
+      assert.equal((await admin("POST", `/inventory/products/${helmetId}/entries`, { quantity: 1 })).status, 409);
+      await assert.rejects(take({ productId: helmetId, quantity: 1 }), /desactivado/);
+
+      await withTransaction((db) => inventory.returnStock(db, adminReq, { productId: helmetId, quantity: 1 }, "devolucion_venta"));
+      assert.equal(await stockOf(helmetId), 3);
+      assert.equal((await admin("PATCH", `/inventory/products/${helmetId}/active`, { isActive: true })).status, 200);
+    });
+
+    it("no se cambia a control por unidad un producto con movimientos", async () => {
+      const { data: helmet } = await admin("GET", `/inventory/products/${helmetId}`);
+      const changed = await admin("PUT", `/inventory/products/${helmetId}`, { ...helmet, code: helmet.code, tracksUnits: true });
+      assert.equal(changed.status, 409);
+    });
+
+    it("la base protege existencias y kárdex aunque alguien salte el servidor", async () => {
+      await assert.rejects(pool.query(`UPDATE products SET stock = -1 WHERE id = $1`, [helmetId]), /products_stock_nonnegative/);
+      await assert.rejects(pool.query(`DELETE FROM inventory_movements WHERE product_id = $1`, [helmetId]), /no se pueden modificar/);
+      await assert.rejects(pool.query(`UPDATE inventory_movements SET quantity = 100 WHERE product_id = $1`, [helmetId]), /no se pueden modificar/);
+    });
+
+    it("el resumen cuenta existencias bajas y el valor del inventario", async () => {
+      const { status, data } = await admin("GET", "/inventory/summary");
+      assert.equal(status, 200);
+      assert.equal(data.activeProducts, 2);
+      assert.equal(data.lowStock, 2, "casco con 3 (mínimo 3) y moto con 1 (mínimo 1)");
+      assert.equal(data.availableUnits, 1);
+      assert.equal(data.stockValue, 3 * 620 + 1 * 19000);
+    });
+
+    it("una entrada puede quedar también como gasto de Mercadería", async () => {
+      const { data: tire } = await admin("POST", "/inventory/products", { name: "Llanta Pirelli 90/90", categoryId: accessoryId, salePrice: 520, minStock: 0, tracksUnits: false });
+      const today = (await import("../src/lib/dates")).todayInGuatemala();
+      const expensesOfToday = async () => (await admin("GET", `/expenses?from=${today}&to=${today}&pageSize=100`)).data.items as any[];
+      const before = (await expensesOfToday()).length;
+
+      const noCost = await admin("POST", `/inventory/products/${tire.id}/entries`, { quantity: 4, expense: { area: "Taller" } });
+      assert.equal(noCost.status, 400, "sin costo no hay gasto que registrar");
+      assert.ok(noCost.data.fields.unitCost);
+
+      const entry = await admin("POST", `/inventory/products/${tire.id}/entries`, { quantity: 4, unitCost: 310.5, note: "Factura 88", expense: { area: "Taller" } });
+      assert.equal(entry.status, 201);
+      assert.equal(entry.data.stock, 4);
+      const created = (await expensesOfToday()).find((e) => e.category === "Mercadería" && e.description.includes("Llanta Pirelli"));
+      assert.ok(created, "el gasto aparece en Gastos");
+      assert.equal(created.amount, 1242);
+      assert.equal(created.area, "Taller");
+      assert.match(created.description, /4 × Llanta Pirelli 90\/90/);
+
+      const without = await admin("POST", `/inventory/products/${tire.id}/entries`, { quantity: 2, unitCost: 310.5 });
+      assert.equal(without.status, 201);
+      assert.equal((await expensesOfToday()).length, before + 1, "sin la opción no se registra gasto");
+    });
+
+    it("si la entrada falla, tampoco queda el gasto", async () => {
+      const today = (await import("../src/lib/dates")).todayInGuatemala();
+      const count = async () => (await admin("GET", `/expenses?from=${today}&to=${today}&pageSize=100`)).data.totalItems as number;
+      const before = await count();
+      const repeated = await admin("POST", `/inventory/products/${motoId}/entries`, { units: [{ serial: "9C2KC1610TR000111" }], unitCost: 19000, expense: { area: "Tienda" } });
+      assert.equal(repeated.status, 409);
+      assert.equal(await count(), before);
+    });
+
+    describe("corregir entradas", () => {
+      let today: string;
+      const expenseOf = async (name: string) =>
+        ((await admin("GET", `/expenses?from=${today}&to=${today}&pageSize=100`)).data.items as any[]).find((e) => e.description.includes(name));
+      const entryOf = async (productId: number) =>
+        ((await admin("GET", `/inventory/products/${productId}/movements?pageSize=50`)).data.items as any[]).find((m) => m.kind === "entrada");
+
+      before(async () => {
+        today = (await import("../src/lib/dates")).todayInGuatemala();
+      });
+
+      it("mueve solo la diferencia, respeta lo ya vendido y corrige el gasto", async () => {
+        const { data: oil } = await admin("POST", "/inventory/products", { name: "Aceite Castrol 7100", categoryId: accessoryId, salePrice: 200, minStock: 0, tracksUnits: false });
+        await admin("POST", `/inventory/products/${oil.id}/entries`, { quantity: 40, unitCost: 60, expense: { area: "Tienda" } });
+        assert.equal((await expenseOf("Aceite Castrol 7100")).amount, 2400);
+        await take({ productId: oil.id, quantity: 10 });
+        const entry = await entryOf(oil.id);
+
+        const tooLow = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 4, reason: "Era 4, no 40" });
+        assert.equal(tooLow.status, 409);
+        assert.match(tooLow.data.error, /lo mínimo que puede quedar es 10/);
+        assert.equal(await stockOf(oil.id), 30, "no cambió nada");
+
+        const fixed = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 12, reason: "Se escribió 40 en vez de 12" });
+        assert.equal(fixed.status, 201);
+        assert.equal(fixed.data.product.stock, 2);
+        assert.deepEqual(fixed.data.expense, { status: "actualizado", expenseId: (await expenseOf("Aceite Castrol 7100")).id, amount: 720 });
+
+        const { data: kardex } = await admin("GET", `/inventory/products/${oil.id}/movements`);
+        const correction = kardex.items.find((m: any) => m.kind === "correccion");
+        assert.equal(correction.quantity, -28);
+        assert.equal(correction.correctsMovementId, entry.id);
+        const original = kardex.items.find((m: any) => m.kind === "entrada");
+        assert.equal(original.quantity, 40, "la entrada original no se toca");
+        assert.equal(original.effectiveQuantity, 12);
+
+        const costOnly = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 12, unitCost: 50, reason: "El costo era 50" });
+        assert.equal(costOnly.status, 201);
+        assert.equal(costOnly.data.product.stock, 2);
+        assert.equal(costOnly.data.product.cost, 50, "era la última compra: el costo del producto se corrige");
+        assert.equal((await expenseOf("Aceite Castrol 7100")).amount, 600);
+
+        assert.equal((await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 12, unitCost: 50, reason: "Igual" })).status, 400);
+        assert.equal((await employee("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 1, reason: "Del empleado" })).status, 403);
+        const sale = kardex.items.find((m: any) => m.kind === "venta");
+        assert.equal((await admin("POST", `/inventory/movements/${sale.id}/correct`, { quantity: 1, reason: "No es entrada" })).status, 404);
+      });
+
+      it("respeta lo que se cambió a mano en Gastos y en 0 elimina el gasto", async () => {
+        const { data: chain } = await admin("POST", "/inventory/products", { name: "Cadena DID 428", categoryId: accessoryId, salePrice: 180, minStock: 0, tracksUnits: false });
+        await admin("POST", `/inventory/products/${chain.id}/entries`, { quantity: 5, unitCost: 100, expense: { area: "Taller" } });
+        const expense = await expenseOf("Cadena DID 428");
+        // El proveedor hizo un descuento y lo anotaron a mano
+        await admin("PUT", `/expenses/${expense.id}`, { spentOn: expense.spentOn, amount: 450, area: expense.area, category: expense.category, description: expense.description });
+
+        const entry = await entryOf(chain.id);
+        const three = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 3, reason: "Llegaron 3" });
+        assert.equal(three.data.expense.amount, 250, "450 − 200 de la diferencia, sin pisar el descuento");
+
+        const zero = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 0, reason: "Nunca llegaron" });
+        assert.equal(zero.status, 201);
+        assert.equal(zero.data.product.stock, 0);
+        assert.equal(zero.data.expense.status, "eliminado");
+        assert.equal(await expenseOf("Cadena DID 428"), undefined);
+      });
+
+      it("una moto registrada por error se da de baja y su costo sale del gasto", async () => {
+        const { data: moto } = await admin("POST", "/inventory/products", { name: "Yamaha FZ 2.0", categoryId: motoCategoryId, salePrice: 19800, minStock: 0, tracksUnits: true });
+        await admin("POST", `/inventory/products/${moto.id}/entries`, {
+          units: [{ serial: "ME1RG0710R0000001" }, { serial: "ME1RG0710R0000002" }],
+          unitCost: 15000,
+          expense: { area: "Tienda" },
+        });
+        assert.equal((await expenseOf("Yamaha FZ 2.0")).amount, 30000);
+        const units = (await admin("GET", `/inventory/products/${moto.id}/units`)).data;
+
+        const asError = await admin("POST", `/inventory/units/${units[0].id}/retire`, { reason: "Se registró dos veces", wasError: true });
+        assert.equal(asError.status, 200);
+        assert.equal(asError.data.expense.amount, 15000);
+        assert.equal(await stockOf(moto.id), 1);
+        const { data: kardex } = await admin("GET", `/inventory/products/${moto.id}/movements`);
+        assert.equal(kardex.items[0].kind, "correccion");
+        assert.equal(kardex.items[0].unitId, units[0].id);
+
+        const damaged = await admin("POST", `/inventory/units/${units[1].id}/retire`, { reason: "Llegó dañada" });
+        assert.equal(damaged.data.expense.status, "sin_gasto", "una baja normal no toca el gasto");
+        assert.equal((await expenseOf("Yamaha FZ 2.0")).amount, 15000);
+
+        assert.equal((await admin("POST", `/inventory/movements/${kardex.items.at(-1).id}/correct`, { quantity: 0, reason: "Moto" })).status, 400, "las motos se corrigen por unidad");
+      });
+    });
+  });
+
+  describe("inventario en ventas y taller", () => {
+    let filterId: number;
+    let bikeId: number;
+    let bikeUnits: { id: number; serial: string }[];
+
+    const stockOf = async (id: number) => (await admin("GET", `/inventory/products/${id}`)).data.stock as number;
+    const movementsOf = async (id: number) => (await admin("GET", `/inventory/products/${id}/movements?pageSize=100`)).data.items as any[];
+    const salesCount = async () => (await pool.query<{ total: number }>(`SELECT count(*)::int AS total FROM sales`)).rows[0].total;
+    const productSale = (items: unknown[]) => ({ sellerId, paymentMethod: "Efectivo", isInvoiced: false, items });
+    /** Lo que manda Editar venta: cada línea con su origen, producto y unidad. */
+    const editItems = (sale: any, change: (item: any) => any = (item) => item) =>
+      sale.items.map((item: any) =>
+        change({
+          description: item.description,
+          categoryId: item.categoryId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          commissionRate: item.commissionRate,
+          origin: item.origin,
+          productId: item.productId ?? undefined,
+          unitId: item.unitId ?? undefined,
+        }),
+      );
+    const edit = (sale: any, items: unknown[]) =>
+      admin("PUT", `/sales/${sale.id}`, { sellerId: sale.sellerId, paymentMethod: sale.paymentMethod, isInvoiced: false, items });
+
+    before(async () => {
+      const motoCategoryId = (await pool.query<{ id: number }>(`SELECT id FROM categories WHERE name = 'Moto usada'`)).rows[0].id;
+      const filter = await admin("POST", "/inventory/products", { name: "Filtro de aceite FX", categoryId: accessoryId, salePrice: 50, minStock: 2, tracksUnits: false });
+      filterId = filter.data.id;
+      await admin("POST", `/inventory/products/${filterId}/entries`, { quantity: 10 });
+      const bike = await admin("POST", "/inventory/products", { name: "Yamaha FZ 2026", categoryId: motoCategoryId, salePrice: 21000, minStock: 0, tracksUnits: true });
+      bikeId = bike.data.id;
+      const entry = await admin("POST", `/inventory/products/${bikeId}/entries`, { units: [{ serial: "YFZ0001", engineNumber: "MTR0001" }, { serial: "YFZ0002" }] });
+      bikeUnits = entry.data.units;
+    });
+
+    it("vender descuenta existencias, y la moto queda vendida con su chasis en la venta", async () => {
+      const { status, data: sale } = await employee(
+        "POST",
+        "/sales",
+        productSale([
+          // La categoría que manda la pantalla no importa: la pone el producto
+          { description: "Filtro de aceite FX", categoryId: serviceId, quantity: 2, unitPrice: 50, productId: filterId },
+          { description: "Yamaha FZ 2026", categoryId: accessoryId, quantity: 1, unitPrice: 20500, productId: bikeId, unitId: bikeUnits[0].id },
+          { description: "Calcomanía especial", categoryId: accessoryId, quantity: 1, unitPrice: 15 },
+        ]),
+      );
+      assert.equal(status, 201, "el Empleado también vende productos del inventario");
+      assert.equal(await stockOf(filterId), 8);
+      assert.equal(await stockOf(bikeId), 1);
+
+      const [filterLine, bikeLine, freeLine] = sale.items;
+      assert.equal(filterLine.categoryId, accessoryId);
+      assert.equal(bikeLine.unitSerial, "YFZ0001");
+      assert.equal(bikeLine.engineNumber, "MTR0001");
+      assert.equal(freeLine.productId, null, "las líneas escritas a mano siguen igual");
+      assert.equal((await movementsOf(filterId))[0].saleId, sale.id);
+
+      const again = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 1, productId: bikeId, unitId: bikeUnits[0].id }]));
+      assert.equal(again.status, 409, "la misma moto no se vende dos veces");
+    });
+
+    it("sin existencias suficientes no se guarda la venta ni cambia nada", async () => {
+      const before = await salesCount();
+      const short = await employee("POST", "/sales", productSale([{ description: "Filtro", categoryId: accessoryId, quantity: 99, unitPrice: 50, productId: filterId }]));
+      assert.equal(short.status, 409);
+      assert.match(short.data.error, /Solo quedan 8/);
+      assert.equal(await salesCount(), before);
+      assert.equal(await stockOf(filterId), 8);
+    });
+
+    it("las motos piden su chasis y van de una en una", async () => {
+      const noUnit = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 1, productId: bikeId }]));
+      assert.match(noUnit.data.error, /chasis/);
+      const two = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 2, unitPrice: 1, productId: bikeId, unitId: bikeUnits[1].id }]));
+      assert.match(two.data.error, /cantidad 1/);
+      const unitOnly = await admin("POST", "/sales", productSale([{ description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 1, unitId: bikeUnits[1].id }]));
+      assert.equal(unitOnly.status, 400);
+    });
+
+    it("editar mueve solo la diferencia, y quitar la línea la devuelve", async () => {
+      const { data: sale } = await admin("POST", "/sales", productSale([{ description: "Filtro", categoryId: accessoryId, quantity: 2, unitPrice: 50, productId: filterId }]));
+      assert.equal(await stockOf(filterId), 6);
+
+      const more = await edit(sale, editItems(sale, (item) => ({ ...item, quantity: 5 })));
+      assert.equal(more.status, 200);
+      assert.equal(await stockOf(filterId), 3);
+
+      const movements = (await movementsOf(filterId)).length;
+      const samePrice = await edit(more.data, editItems(more.data, (item) => ({ ...item, unitPrice: 45 })));
+      assert.equal(samePrice.status, 200);
+      assert.equal((await movementsOf(filterId)).length, movements, "si la cantidad no cambia, el kárdex no registra nada");
+
+      const freeLine = await edit(samePrice.data, [{ description: "Servicio", categoryId: serviceId, quantity: 1, unitPrice: 10 }]);
+      assert.equal(freeLine.status, 200);
+      assert.equal(await stockOf(filterId), 8);
+      assert.equal((await movementsOf(filterId))[0].kind, "devolucion_venta");
+    });
+
+    it("eliminar la venta devuelve existencias y la moto vuelve a estar disponible", async () => {
+      const { data: sale } = await admin(
+        "POST",
+        "/sales",
+        productSale([
+          { description: "Filtro", categoryId: accessoryId, quantity: 3, unitPrice: 50, productId: filterId },
+          { description: "Yamaha", categoryId: accessoryId, quantity: 1, unitPrice: 20000, productId: bikeId, unitId: bikeUnits[1].id },
+        ]),
+      );
+      assert.equal(await stockOf(filterId), 5);
+      assert.equal(await stockOf(bikeId), 0);
+
+      assert.equal((await admin("DELETE", `/sales/${sale.id}`, { reason: "Prueba de inventario" })).status, 204);
+      assert.equal(await stockOf(filterId), 8);
+      assert.equal(await stockOf(bikeId), 1);
+      assert.ok((await admin("GET", `/inventory/products/${bikeId}/units`)).data.some((unit: any) => unit.id === bikeUnits[1].id));
+    });
+
+    it("taller: agregar aparta, quitar devuelve, cobrar no descuenta y eliminar su venta no devuelve", async () => {
+      const { data: order } = await admin("POST", "/workshop", { clientName: "Inventario", motorcycle: "Moto", workDescription: "Servicio", mechanicId });
+      const added = await employee("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Filtro FX", categoryId: serviceId, quantity: 3, unitPrice: 50, productId: filterId });
+      assert.equal(added.status, 201);
+      assert.equal(await stockOf(filterId), 5, "se aparta al agregarlo");
+      const part = added.data.items.find((item: any) => item.productId === filterId);
+      assert.equal(part.categoryId, accessoryId, "la categoría la pone el producto");
+
+      await employee("DELETE", `/workshop/${order.id}/items/${part.id}`);
+      assert.equal(await stockOf(filterId), 8, "regresa al quitarlo");
+
+      const bike = await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Moto", categoryId: accessoryId, quantity: 1, unitPrice: 1, productId: bikeId });
+      assert.match(bike.data.error, /repuesto/);
+      const tooMany = await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Filtro", categoryId: accessoryId, quantity: 99, unitPrice: 50, productId: filterId });
+      assert.equal(tooMany.status, 409);
+      assert.equal((await admin("GET", `/workshop/${order.id}`)).data.items.length, 0, "si no alcanza, no queda el repuesto en la orden");
+
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "repuesto", description: "Filtro FX", categoryId: accessoryId, quantity: 2, unitPrice: 50, productId: filterId });
+      await admin("POST", `/workshop/${order.id}/items`, { kind: "servicio", description: "Mano de obra", categoryId: serviceId, quantity: 1, unitPrice: 100 });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "En reparación" });
+      await admin("PATCH", `/workshop/${order.id}/status`, { status: "Lista para entregar" });
+      const { data: charged } = await admin("POST", `/workshop/${order.id}/checkout`, { sellerId, paymentMethod: "Efectivo", isInvoiced: false });
+      assert.equal(await stockOf(filterId), 6, "cobrar no vuelve a descontar");
+      const soldPart = charged.sale.items.find((item: any) => item.productId === filterId);
+      assert.equal(soldPart.origin, "taller_repuesto");
+
+      const moreParts = await edit(charged.sale, editItems(charged.sale, (item) => (item.productId ? { ...item, quantity: 5 } : item)));
+      assert.equal(moreParts.status, 400, "los repuestos del taller no cambian de cantidad al editar la venta");
+      const newPrice = await edit(charged.sale, editItems(charged.sale, (item) => (item.productId ? { ...item, unitPrice: 55 } : item)));
+      assert.equal(newPrice.status, 200, "su precio sí");
+
+      await admin("DELETE", `/sales/${charged.sale.id}`, { reason: "Prueba de taller" });
+      assert.equal(await stockOf(filterId), 6, "siguen apartados para la orden");
+      assert.equal((await admin("GET", `/workshop/${order.id}`)).data.status, "Lista para entregar");
+    });
+  });
+
   // Va al final: el cierre deja en solo lectura todas las ventas creadas hasta aquí
   it("una venta cerrada no se edita ni se elimina, su orden no cambia y el historial la marca", async () => {
     const { orderId, sale } = await chargedWorkshopOrder();

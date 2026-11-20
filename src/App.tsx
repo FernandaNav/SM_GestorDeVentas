@@ -12,6 +12,7 @@ import EmployeeHomePage from "@/pages/home/EmployeeHomePage";
 import LoginPage from "@/pages/login/LoginPage";
 import NewSalePage from "@/pages/sales/NewSalePage";
 import SalesHistoryPage from "@/pages/sales/SalesHistoryPage";
+import InventoryPage from "@/pages/inventory/InventoryPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import StaffPage from "@/pages/staff/StaffPage";
 import StatsPage from "@/pages/stats/StatsPage";
@@ -52,6 +53,7 @@ function AppRoutes() {
           <Route path={paths.salesHistory} element={<SalesHistoryPage role={role} />} />
 
           <Route path={paths.workshop} element={<WorkshopPage />} />
+          <Route path={paths.inventory} element={<InventoryPage role={role} />} />
 
           {/* Solo Empleado */}
           <Route element={<RequireRole roles={["Empleado"]} />}>

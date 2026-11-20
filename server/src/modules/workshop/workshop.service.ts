@@ -21,6 +21,8 @@ import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
 import * as categoriesRepository from "../categories/categories.repository";
+import * as inventoryRepository from "../inventory/inventory.repository";
+import * as inventoryService from "../inventory/inventory.service";
 import * as salesService from "../sales/sales.service";
 import * as staffRepository from "../staff/staff.repository";
 import * as workshopRepository from "./workshop.repository";
@@ -72,14 +74,24 @@ export function create(input: CreateWorkshopOrderInput, req: Request): Promise<W
   });
 }
 
-/** Servicios y repuestos se pueden registrar hasta que la orden se cobra (RF 8.1). */
+/**
+ * Servicios y repuestos se pueden registrar hasta que la orden se cobra (RF 8.1). Un repuesto del
+ * inventario se aparta al agregarlo: sale de las existencias aunque la orden todavía no se cobre.
+ */
 export function addItem(orderId: number, input: WorkshopItemInput, req: Request): Promise<WorkshopOrderDetail> {
   return withTransaction(async (db) => {
     await lockEditableOrder(db, orderId);
-    const [category] = await categoriesRepository.findByIds(db, [input.categoryId]);
+    // Con producto, la categoría la pone el inventario y no la pantalla
+    const product = input.productId ? await inventoryRepository.findProduct(db, input.productId) : undefined;
+    if (input.productId && !product) throw new HttpError(400, "El producto ya no existe en el inventario");
+    const categoryId = product ? product.categoryId : input.categoryId;
+    const [category] = await categoriesRepository.findByIds(db, [categoryId]);
     if (!category || !category.isActive) throw new HttpError(400, "La categoría seleccionada no existe o está inactiva");
 
-    const item = await workshopRepository.insertItem(db, orderId, input);
+    const item = await workshopRepository.insertItem(db, orderId, { ...input, categoryId });
+    if (product) {
+      await inventoryService.takeStock(db, req, { productId: product.id, quantity: input.quantity }, "taller", { workshopOrderId: orderId });
+    }
     await workshopRepository.insertEvent(
       db,
       orderId,
@@ -96,6 +108,11 @@ export function removeItem(orderId: number, itemId: number, req: Request): Promi
     await lockEditableOrder(db, orderId);
     const removed = await workshopRepository.deleteItem(db, orderId, itemId);
     if (!removed) throw notFound("el servicio o repuesto");
+    if (removed.productId) {
+      await inventoryService.returnStock(db, req, { productId: removed.productId, quantity: removed.quantity }, "devolucion_taller", {
+        workshopOrderId: orderId,
+      });
+    }
     await workshopRepository.insertEvent(db, orderId, `Se quitó ${removed.kind}: ${removed.description}`, currentUser(req).id);
     await recordAudit(db, req, { action: "eliminar", entity: "workshop_order_items", entityId: itemId, before: { orderId, ...removed } });
     return (await loadDetail(db, orderId))!;
@@ -166,6 +183,8 @@ export function checkout(
         categoryId: item.categoryId!,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
+        // El producto viaja a la venta para saber de dónde salió; sus existencias ya se apartaron
+        productId: item.productId ?? undefined,
         origin: item.kind === "servicio" ? ("taller_servicio" as const) : ("taller_repuesto" as const),
       })),
     };
