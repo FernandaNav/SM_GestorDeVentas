@@ -1217,6 +1217,98 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       assert.equal(repeated.status, 409);
       assert.equal(await count(), before);
     });
+
+    describe("corregir entradas", () => {
+      let today: string;
+      const expenseOf = async (name: string) =>
+        ((await admin("GET", `/expenses?from=${today}&to=${today}&pageSize=100`)).data.items as any[]).find((e) => e.description.includes(name));
+      const entryOf = async (productId: number) =>
+        ((await admin("GET", `/inventory/products/${productId}/movements?pageSize=50`)).data.items as any[]).find((m) => m.kind === "entrada");
+
+      before(async () => {
+        today = (await import("../src/lib/dates")).todayInGuatemala();
+      });
+
+      it("mueve solo la diferencia, respeta lo ya vendido y corrige el gasto", async () => {
+        const { data: oil } = await admin("POST", "/inventory/products", { name: "Aceite Castrol 7100", categoryId: accessoryId, salePrice: 200, minStock: 0, tracksUnits: false });
+        await admin("POST", `/inventory/products/${oil.id}/entries`, { quantity: 40, unitCost: 60, expense: { area: "Tienda" } });
+        assert.equal((await expenseOf("Aceite Castrol 7100")).amount, 2400);
+        await take({ productId: oil.id, quantity: 10 });
+        const entry = await entryOf(oil.id);
+
+        const tooLow = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 4, reason: "Era 4, no 40" });
+        assert.equal(tooLow.status, 409);
+        assert.match(tooLow.data.error, /lo mínimo que puede quedar es 10/);
+        assert.equal(await stockOf(oil.id), 30, "no cambió nada");
+
+        const fixed = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 12, reason: "Se escribió 40 en vez de 12" });
+        assert.equal(fixed.status, 201);
+        assert.equal(fixed.data.product.stock, 2);
+        assert.deepEqual(fixed.data.expense, { status: "actualizado", expenseId: (await expenseOf("Aceite Castrol 7100")).id, amount: 720 });
+
+        const { data: kardex } = await admin("GET", `/inventory/products/${oil.id}/movements`);
+        const correction = kardex.items.find((m: any) => m.kind === "correccion");
+        assert.equal(correction.quantity, -28);
+        assert.equal(correction.correctsMovementId, entry.id);
+        const original = kardex.items.find((m: any) => m.kind === "entrada");
+        assert.equal(original.quantity, 40, "la entrada original no se toca");
+        assert.equal(original.effectiveQuantity, 12);
+
+        const costOnly = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 12, unitCost: 50, reason: "El costo era 50" });
+        assert.equal(costOnly.status, 201);
+        assert.equal(costOnly.data.product.stock, 2);
+        assert.equal(costOnly.data.product.cost, 50, "era la última compra: el costo del producto se corrige");
+        assert.equal((await expenseOf("Aceite Castrol 7100")).amount, 600);
+
+        assert.equal((await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 12, unitCost: 50, reason: "Igual" })).status, 400);
+        assert.equal((await employee("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 1, reason: "Del empleado" })).status, 403);
+        const sale = kardex.items.find((m: any) => m.kind === "venta");
+        assert.equal((await admin("POST", `/inventory/movements/${sale.id}/correct`, { quantity: 1, reason: "No es entrada" })).status, 404);
+      });
+
+      it("respeta lo que se cambió a mano en Gastos y en 0 elimina el gasto", async () => {
+        const { data: chain } = await admin("POST", "/inventory/products", { name: "Cadena DID 428", categoryId: accessoryId, salePrice: 180, minStock: 0, tracksUnits: false });
+        await admin("POST", `/inventory/products/${chain.id}/entries`, { quantity: 5, unitCost: 100, expense: { area: "Taller" } });
+        const expense = await expenseOf("Cadena DID 428");
+        // El proveedor hizo un descuento y lo anotaron a mano
+        await admin("PUT", `/expenses/${expense.id}`, { spentOn: expense.spentOn, amount: 450, area: expense.area, category: expense.category, description: expense.description });
+
+        const entry = await entryOf(chain.id);
+        const three = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 3, reason: "Llegaron 3" });
+        assert.equal(three.data.expense.amount, 250, "450 − 200 de la diferencia, sin pisar el descuento");
+
+        const zero = await admin("POST", `/inventory/movements/${entry.id}/correct`, { quantity: 0, reason: "Nunca llegaron" });
+        assert.equal(zero.status, 201);
+        assert.equal(zero.data.product.stock, 0);
+        assert.equal(zero.data.expense.status, "eliminado");
+        assert.equal(await expenseOf("Cadena DID 428"), undefined);
+      });
+
+      it("una moto registrada por error se da de baja y su costo sale del gasto", async () => {
+        const { data: moto } = await admin("POST", "/inventory/products", { name: "Yamaha FZ 2.0", categoryId: motoCategoryId, salePrice: 19800, minStock: 0, tracksUnits: true });
+        await admin("POST", `/inventory/products/${moto.id}/entries`, {
+          units: [{ serial: "ME1RG0710R0000001" }, { serial: "ME1RG0710R0000002" }],
+          unitCost: 15000,
+          expense: { area: "Tienda" },
+        });
+        assert.equal((await expenseOf("Yamaha FZ 2.0")).amount, 30000);
+        const units = (await admin("GET", `/inventory/products/${moto.id}/units`)).data;
+
+        const asError = await admin("POST", `/inventory/units/${units[0].id}/retire`, { reason: "Se registró dos veces", wasError: true });
+        assert.equal(asError.status, 200);
+        assert.equal(asError.data.expense.amount, 15000);
+        assert.equal(await stockOf(moto.id), 1);
+        const { data: kardex } = await admin("GET", `/inventory/products/${moto.id}/movements`);
+        assert.equal(kardex.items[0].kind, "correccion");
+        assert.equal(kardex.items[0].unitId, units[0].id);
+
+        const damaged = await admin("POST", `/inventory/units/${units[1].id}/retire`, { reason: "Llegó dañada" });
+        assert.equal(damaged.data.expense.status, "sin_gasto", "una baja normal no toca el gasto");
+        assert.equal((await expenseOf("Yamaha FZ 2.0")).amount, 15000);
+
+        assert.equal((await admin("POST", `/inventory/movements/${kardex.items.at(-1).id}/correct`, { quantity: 0, reason: "Moto" })).status, 400, "las motos se corrigen por unidad");
+      });
+    });
   });
 
   describe("inventario en ventas y taller", () => {

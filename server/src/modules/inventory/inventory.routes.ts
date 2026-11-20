@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { idParamSchema, paginationSchema } from "@shared/schemas/common";
 import {
+  entryCorrectionSchema,
+  movementParamsSchema,
   productActiveSchema,
   productFiltersSchema,
   productInputSchema,
@@ -86,8 +88,15 @@ inventoryRouter.patch("/units/:unitId", adminOnly, async (req, res) => {
   res.json(await inventoryService.updateUnit(unitId, unitUpdateSchema.parse(req.body), req));
 });
 
-// { reason }
+// { reason, wasError? }  wasError = la moto se registró por error: su costo sale del gasto de la entrada
 inventoryRouter.post("/units/:unitId/retire", adminOnly, async (req, res) => {
   const { unitId } = unitParamsSchema.parse(req.params);
-  res.json(await inventoryService.retireUnit(unitId, unitRetireSchema.parse(req.body).reason, req));
+  const { reason, wasError } = unitRetireSchema.parse(req.body);
+  res.json(await inventoryService.retireUnit(unitId, reason, req, wasError));
+});
+
+// Corregir una entrada mal registrada: { quantity, unitCost?, reason }
+inventoryRouter.post("/movements/:movementId/correct", adminOnly, async (req, res) => {
+  const { movementId } = movementParamsSchema.parse(req.params);
+  res.status(201).json(await inventoryService.correctEntry(movementId, entryCorrectionSchema.parse(req.body), req));
 });

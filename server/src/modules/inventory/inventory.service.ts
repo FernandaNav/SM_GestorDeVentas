@@ -11,6 +11,7 @@ import type {
   ProductInput,
   ProductOption,
   ProductUnit,
+  EntryCorrectionInput,
   StockAdjustmentInput,
   StockEntryInput,
   UnitUpdateInput,
@@ -226,6 +227,21 @@ export function addEntry(productId: number, input: StockEntryInput, req: Request
     if (!product.isActive) throw new HttpError(409, "Activa el producto antes de registrar entradas");
     const createdBy = currentUser(req).id;
 
+    // El gasto (si se pidió) se crea primero para dejar ligado a él cada movimiento de la entrada
+    const quantity = input.quantity ?? input.units?.length ?? 0;
+    let expense: { id: number; amount: number } | undefined;
+    if (input.expense && input.unitCost) {
+      const amount = Math.round(input.unitCost * quantity * 100) / 100;
+      const description = `Entrada de mercadería: ${quantity} × ${product.name} (${formatMoney(input.unitCost)} c/u)${input.note ? ` · ${input.note}` : ""}`;
+      const created = await expensesRepository.insert(
+        db,
+        { spentOn: todayInGuatemala(), amount, area: input.expense.area, category: "Mercadería", description: description.slice(0, 200) },
+        createdBy,
+      );
+      await recordAudit(db, req, { action: "crear", entity: "expenses", entityId: created.id, after: { ...created, productId } });
+      expense = { id: created.id, amount };
+    }
+
     if (product.tracksUnits) {
       if (!input.units) throw new HttpError(400, "Este producto se controla por unidad: escribe el número de chasis de cada moto");
       const taken = await inventoryRepository.findExistingSerials(db, input.units.map((unit) => unit.serial));
@@ -240,6 +256,7 @@ export function addEntry(productId: number, input: StockEntryInput, req: Request
           stockAfter: await inventoryRepository.currentStock(db, productId),
           unitCost: input.unitCost,
           note: input.note,
+          expenseId: expense?.id,
           createdBy,
         });
       }
@@ -253,22 +270,9 @@ export function addEntry(productId: number, input: StockEntryInput, req: Request
         stockAfter: stockAfter!,
         unitCost: input.unitCost,
         note: input.note,
+        expenseId: expense?.id,
         createdBy,
       });
-    }
-
-    const quantity = input.quantity ?? input.units?.length ?? 0;
-    let expense: { id: number; amount: number } | undefined;
-    if (input.expense && input.unitCost) {
-      const amount = Math.round(input.unitCost * quantity * 100) / 100;
-      const description = `Entrada de mercadería: ${quantity} × ${product.name} (${formatMoney(input.unitCost)} c/u)${input.note ? ` · ${input.note}` : ""}`;
-      const created = await expensesRepository.insert(
-        db,
-        { spentOn: todayInGuatemala(), amount, area: input.expense.area, category: "Mercadería", description: description.slice(0, 200) },
-        createdBy,
-      );
-      await recordAudit(db, req, { action: "crear", entity: "expenses", entityId: created.id, after: { ...created, productId } });
-      expense = { id: created.id, amount };
     }
 
     // El costo del producto queda como el de la última compra
@@ -331,26 +335,150 @@ export function updateUnit(unitId: number, input: UnitUpdateInput, req: Request)
   });
 }
 
-/** Da de baja una moto disponible (dañada, robada, devuelta al proveedor). */
-export function retireUnit(unitId: number, reason: string, req: Request): Promise<ProductUnit> {
+/**
+ * Da de baja una moto disponible (dañada, robada, devuelta al proveedor). Con `wasError` la moto se
+ * registró por error (nunca llegó): queda como corrección de su entrada y su costo sale del gasto.
+ */
+export function retireUnit(unitId: number, reason: string, req: Request, wasError = false): Promise<ProductUnit & { expense: ExpenseCorrection }> {
   return withTransaction(async (db) => {
     const unit = await inventoryRepository.findUnit(db, unitId);
     if (!unit) throw notFound("la unidad");
     await inventoryRepository.lockProduct(db, unit.productId);
     const retired = await inventoryRepository.moveUnit(db, unitId, unit.productId, "disponible", "baja");
     if (!retired) throw new HttpError(409, `La unidad con chasis ${unit.serial} no está disponible`);
+
+    const entry = wasError ? await inventoryRepository.findEntryOfUnit(db, unitId) : undefined;
     await inventoryRepository.insertMovement(db, {
       productId: unit.productId,
       unitId,
-      kind: "baja",
+      kind: entry ? "correccion" : "baja",
       quantity: -1,
       stockAfter: await inventoryRepository.currentStock(db, unit.productId),
       note: reason,
+      correctsMovementId: entry?.id,
+      expenseId: entry?.expenseId,
       createdBy: currentUser(req).id,
     });
-    await recordAudit(db, req, { action: "editar", entity: "product_units", entityId: unitId, before: unit, after: { ...retired, reason } });
-    return retired;
+    // El gasto de la entrada puede cubrir varias motos: solo sale el costo de esta. Se elimina
+    // únicamente si ya no queda nada que pagar en él
+    const expense: ExpenseCorrection = entry
+      ? await correctLinkedExpense(db, req, entry.expenseId, -(entry.unitCost ?? 0), `chasis ${unit.serial} registrado por error`, false)
+      : { status: "sin_gasto" };
+    await recordAudit(db, req, { action: "editar", entity: "product_units", entityId: unitId, before: unit, after: { ...retired, reason, wasError } });
+    return { ...retired, expense };
   });
+}
+
+/** Qué le pasó al gasto de una entrada al corregirla. */
+export type ExpenseCorrection =
+  | { status: "actualizado"; expenseId: number; amount: number }
+  | { status: "eliminado"; expenseId: number }
+  | { status: "sin_cambio" | "sin_gasto" | "no_encontrado" };
+
+/**
+ * Corrige una entrada mal registrada (por ejemplo, 40 en vez de 4): deja un movimiento de corrección
+ * que apunta a la entrada, mueve solo la diferencia de existencias, corrige el costo del producto si
+ * era su última compra y corrige el gasto que nació con la entrada. Todo o nada.
+ */
+export function correctEntry(movementId: number, input: EntryCorrectionInput, req: Request): Promise<{ product: Product; expense: ExpenseCorrection }> {
+  return withTransaction(async (db) => {
+    const found = await inventoryRepository.findEntryState(db, movementId);
+    if (!found || found.kind !== "entrada") throw notFound("la entrada");
+    const product = await inventoryRepository.lockProduct(db, found.productId);
+    if (!product) throw notFound("el producto");
+    if (product.tracksUnits) {
+      throw new HttpError(400, "Las motos se corrigen una por una: corrige el chasis o da de baja la unidad registrada por error");
+    }
+    // Se vuelve a leer ya con el producto bloqueado, por si otra corrección entró antes
+    const entry = (await inventoryRepository.findEntryState(db, movementId))!;
+
+    const delta = input.quantity - entry.quantity;
+    const costChanged = input.unitCost !== undefined && input.unitCost !== entry.unitCost;
+    const newCost = input.unitCost ?? entry.unitCost;
+    if (delta === 0 && !costChanged) {
+      const cost = entry.unitCost != null ? ` a ${formatMoney(entry.unitCost)}` : "";
+      throw new HttpError(400, `La entrada ya dice ${entry.quantity}${cost}: no hay nada que corregir`);
+    }
+
+    let stockAfter = product.stock;
+    if (delta !== 0) {
+      const changed = await inventoryRepository.changeStock(db, product.id, delta);
+      if (changed === undefined) {
+        const minimum = entry.quantity - product.stock;
+        throw new HttpError(409, `Solo quedan ${product.stock} en existencia (ya salieron ${minimum} de esta entrada): lo mínimo que puede quedar es ${minimum}`);
+      }
+      stockAfter = changed;
+    }
+    await inventoryRepository.insertMovement(db, {
+      productId: product.id,
+      kind: "correccion",
+      quantity: delta,
+      stockAfter,
+      unitCost: costChanged ? input.unitCost : null,
+      note: input.reason,
+      correctsMovementId: entry.id,
+      expenseId: entry.expenseId,
+      createdBy: currentUser(req).id,
+    });
+
+    // Si esa era la última compra con costo, el costo del producto se corrige también
+    if (costChanged && !(await inventoryRepository.hasLaterCostedEntry(db, product.id, entry.id))) {
+      await inventoryRepository.updateProduct(db, product.id, { ...toInput(product), cost: input.unitCost });
+    }
+
+    const detail = `corregida a ${input.quantity}${newCost != null ? ` × ${formatMoney(newCost)}` : ""}`;
+    const oldTotal = entry.quantity * (entry.unitCost ?? 0);
+    const newTotal = input.quantity * (newCost ?? 0);
+    // Si la entrada queda en 0, esa compra no existió: su gasto se elimina
+    const expense = await correctLinkedExpense(db, req, entry.expenseId, newTotal - oldTotal, detail, newTotal <= 0);
+    const after = (await inventoryRepository.findProduct(db, product.id))!;
+    await recordAudit(db, req, {
+      action: "editar",
+      entity: "inventory_entries",
+      entityId: entry.id,
+      before: { quantity: entry.quantity, unitCost: entry.unitCost, stock: product.stock },
+      after: { quantity: input.quantity, unitCost: newCost, stock: after.stock, reason: input.reason, expense },
+    });
+    return { product: after, expense };
+  });
+}
+
+/**
+ * Corrige el gasto ligado a una entrada sumándole `change` (negativo = baja). Por diferencia, y no
+ * reescribiendo el monto, para respetar lo que alguien haya cambiado a mano en Gastos. Se elimina
+ * si `removeIt` (la compra no existió) o si ya no queda nada que pagar en él.
+ */
+async function correctLinkedExpense(
+  db: pg.PoolClient,
+  req: Request,
+  expenseId: number | null,
+  change: number,
+  detail: string,
+  removeIt: boolean,
+): Promise<ExpenseCorrection> {
+  if (!expenseId) return { status: "sin_gasto" };
+  const expense = await expensesRepository.findById(db, expenseId);
+  // Lo eliminaron a mano desde Gastos: ya no hay nada que corregir
+  if (!expense) return { status: "no_encontrado" };
+  const diff = Math.round(change * 100) / 100;
+  if (diff === 0 && !removeIt) return { status: "sin_cambio" };
+
+  const corrected = Math.round((expense.amount + diff) * 100) / 100;
+  if (removeIt || corrected <= 0) {
+    await expensesRepository.remove(db, expenseId);
+    await recordAudit(db, req, { action: "eliminar", entity: "expenses", entityId: expenseId, before: expense, after: { reason: `Entrada ${detail}` } });
+    return { status: "eliminado", expenseId };
+  }
+  const amount = corrected;
+  const updated = await expensesRepository.update(db, expenseId, {
+    spentOn: expense.spentOn,
+    amount,
+    area: expense.area,
+    category: expense.category,
+    description: `${expense.description} · ${detail}`.slice(0, 200),
+  });
+  await recordAudit(db, req, { action: "editar", entity: "expenses", entityId: expenseId, before: expense, after: updated });
+  return { status: "actualizado", expenseId, amount };
 }
 
 export async function listMovements(productId: number, { page, pageSize }: Pagination): Promise<Page<InventoryMovement>> {

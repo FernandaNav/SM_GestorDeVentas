@@ -4,7 +4,7 @@ import { EXPENSE_AREAS } from "../constants";
 // Inventario: productos, motos por unidad (chasis) y kárdex. Ver docs/INVENTARIO.md.
 
 /** Tipos de movimiento del kárdex. Deben coincidir con el CHECK de inventory_movements.kind (007_inventario.sql). */
-export const MOVEMENT_KINDS = ["entrada", "ajuste", "baja", "venta", "devolucion_venta", "taller", "devolucion_taller"] as const;
+export const MOVEMENT_KINDS = ["entrada", "ajuste", "baja", "venta", "devolucion_venta", "taller", "devolucion_taller", "correccion"] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
 export const MOVEMENT_LABELS: Record<MovementKind, string> = {
@@ -15,6 +15,7 @@ export const MOVEMENT_LABELS: Record<MovementKind, string> = {
   devolucion_venta: "Devolución de venta",
   taller: "Usado en taller",
   devolucion_taller: "Devuelto del taller",
+  correccion: "Corrección de entrada",
 };
 
 export const UNIT_STATUSES = ["disponible", "vendida", "baja"] as const;
@@ -134,10 +135,24 @@ export const unitUpdateSchema = z.object({
 });
 export type UnitUpdateInput = z.infer<typeof unitUpdateSchema>;
 
-/** Dar de baja una moto disponible (dañada, robada, devuelta al proveedor). */
+/**
+ * Dar de baja una moto disponible (dañada, robada, devuelta al proveedor). Con `wasError`, la moto
+ * se registró por error (nunca llegó): su costo también sale del gasto de esa entrada.
+ */
 export const unitRetireSchema = z.object({
   reason: z.string().trim().min(3, "Explica el motivo de la baja").max(200, "Máximo 200 caracteres"),
+  wasError: z.boolean().optional(),
 });
+
+/** Corregir una entrada mal registrada: la cantidad y el costo que debieron ser, con su motivo. */
+export const entryCorrectionSchema = z.object({
+  quantity: z.number({ message: "Indica la cantidad correcta" }).int("La cantidad debe ser entera").min(0, "Mínimo 0").max(100_000),
+  unitCost: money.optional(),
+  reason: z.string().trim().min(3, "Explica qué se corrige").max(200, "Máximo 200 caracteres"),
+});
+export type EntryCorrectionInput = z.infer<typeof entryCorrectionSchema>;
+
+export const movementParamsSchema = z.object({ movementId: z.coerce.number().int().positive("Movimiento inválido") });
 
 export const unitParamsSchema = z.object({ unitId: z.coerce.number().int().positive("Unidad inválida") });
 
@@ -198,6 +213,11 @@ export type InventoryMovement = {
   note: string | null;
   createdByRole: string | null;
   createdAt: string;
+  expenseId: number | null;
+  correctsMovementId: number | null;
+  /** Solo en las entradas: cantidad y costo vigentes después de sus correcciones */
+  effectiveQuantity: number | null;
+  effectiveUnitCost: number | null;
 };
 
 export type InventorySummary = {

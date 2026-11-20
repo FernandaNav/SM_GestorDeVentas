@@ -8,11 +8,18 @@ import type {
   ProductInput,
   ProductOption,
   ProductUnit,
+  EntryCorrectionInput,
   StockAdjustmentInput,
   StockEntryInput,
   UnitUpdateInput,
 } from "@shared/schemas/inventory";
 import { api, toQuery } from "./client";
+
+/** Qué le pasó al gasto de una entrada al corregirla (ver correctLinkedExpense en el servidor). */
+export type ExpenseCorrection =
+  | { status: "actualizado"; expenseId: number; amount: number }
+  | { status: "eliminado"; expenseId: number }
+  | { status: "sin_cambio" | "sin_gasto" | "no_encontrado" };
 
 export const inventoryApi = {
   list: (filters: Partial<ProductFilters>, page: number, pageSize = 20) =>
@@ -31,5 +38,9 @@ export const inventoryApi = {
   movements: (id: number, page: number, pageSize = 10) =>
     api.get<Page<InventoryMovement>>(`/inventory/products/${id}/movements${toQuery({ page, pageSize })}`),
   updateUnit: (unitId: number, input: UnitUpdateInput) => api.patch<ProductUnit>(`/inventory/units/${unitId}`, input),
-  retireUnit: (unitId: number, reason: string) => api.post<ProductUnit>(`/inventory/units/${unitId}/retire`, { reason }),
+  /** wasError = la moto se registró por error: su costo también sale del gasto de la entrada */
+  retireUnit: (unitId: number, reason: string, wasError = false) =>
+    api.post<ProductUnit & { expense: ExpenseCorrection }>(`/inventory/units/${unitId}/retire`, { reason, wasError }),
+  correctEntry: (movementId: number, input: EntryCorrectionInput) =>
+    api.post<{ product: Product; expense: ExpenseCorrection }>(`/inventory/movements/${movementId}/correct`, input),
 };

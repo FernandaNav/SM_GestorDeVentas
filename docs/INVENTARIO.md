@@ -45,7 +45,8 @@ Lo que protege la **base de datos** (aunque alguien salte el servidor):
 | `POST /products/:id/entries` | Admin | Entrada: `{ quantity }` o, para motos, `{ units: [{ serial, engineNumber? }] }`. |
 | `POST /products/:id/adjustments` | Admin | Ajuste por conteo: `{ countedStock, reason }`. |
 | `GET /products/:id/movements` | Admin | Kárdex paginado. |
-| `PATCH /units/:unitId` · `POST /units/:unitId/retire` | Admin | Corregir chasis / dar de baja una moto disponible. |
+| `PATCH /units/:unitId` · `POST /units/:unitId/retire` | Admin | Corregir chasis / dar de baja una moto disponible (`wasError: true` = se registró por error: su costo sale del gasto). |
+| `POST /movements/:movementId/correct` | Admin | Corregir una entrada mal registrada: `{ quantity, unitCost?, reason }`. |
 
 En el frontend todo esto está en `src/api/inventory.ts` (`inventoryApi.search`, `inventoryApi.availableUnits`, etc.).
 
@@ -125,6 +126,13 @@ No revisa permisos: eso lo hace quien lo llama (ventas y taller ya lo hacen).
 - [ ] El Empleado puede vender productos del inventario.
 - [ ] Ventas sin productos (líneas libres) siguen funcionando igual.
 
+## Entradas como gasto y su corrección (migración 008)
+
+- Al registrar una entrada con costo se puede crear también el gasto (categoría **Mercadería**). El gasto queda ligado a cada movimiento de la entrada (`inventory_movements.expense_id`).
+- **Corregir una entrada** (40 en vez de 4) no edita el kárdex: crea un movimiento `correccion` que apunta a la entrada (`corrects_movement_id`), mueve solo la diferencia de existencias y corrige el gasto **por diferencia**, para respetar lo que se haya cambiado a mano en Gastos. Si la entrada queda en 0, el gasto se elimina.
+- No deja bajar una entrada por debajo de lo que ya salió (409 "lo mínimo que puede quedar es N").
+- Una moto registrada por error se da de baja con `wasError`: sale solo su costo del gasto de esa entrada (que puede cubrir varias motos).
+
 ## Despliegue (importante)
 
-Render despliega `main` automáticamente. **Antes de que llegue a `main`, hay que aplicar la migración 007 en Supabase** (`pnpm db:migrate` con la `DATABASE_URL` de producción, o pegando el archivo en el SQL Editor). Si el código llega primero, la pantalla Inventario falla hasta que se aplique.
+Render despliega `main` automáticamente. **Antes de que llegue a `main`, hay que aplicar las migraciones 007 y 008 en Supabase** (la 007 ya está aplicada) (`pnpm db:migrate` con la `DATABASE_URL` de producción, o pegando el archivo en el SQL Editor). Si el código llega primero, la pantalla Inventario falla hasta que se aplique.

@@ -200,13 +200,17 @@ export type NewMovement = {
   saleId?: number | null;
   workshopOrderId?: number | null;
   note?: string | null;
+  /** Gasto que se creó junto con una entrada */
+  expenseId?: number | null;
+  /** Entrada que corrige (solo kind = "correccion") */
+  correctsMovementId?: number | null;
   createdBy: number;
 };
 
 export async function insertMovement(db: Queryable, movement: NewMovement): Promise<number> {
   const { rows } = await db.query<{ id: number }>(
-    `INSERT INTO inventory_movements (product_id, unit_id, kind, quantity, stock_after, unit_cost, sale_id, workshop_order_id, note, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+    `INSERT INTO inventory_movements (product_id, unit_id, kind, quantity, stock_after, unit_cost, sale_id, workshop_order_id, note, expense_id, corrects_movement_id, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
     [
       movement.productId,
       movement.unitId ?? null,
@@ -217,10 +221,54 @@ export async function insertMovement(db: Queryable, movement: NewMovement): Prom
       movement.saleId ?? null,
       movement.workshopOrderId ?? null,
       movement.note ?? null,
+      movement.expenseId ?? null,
+      movement.correctsMovementId ?? null,
       movement.createdBy,
     ],
   );
   return rows[0].id;
+}
+
+// Lo que vale una entrada después de sus correcciones: la cantidad suma las diferencias y el costo
+// es el de la última corrección que lo cambió (o el original)
+const ENTRY_QUANTITY = `(m.quantity + coalesce((SELECT sum(c.quantity) FROM inventory_movements c WHERE c.corrects_movement_id = m.id), 0))::int`;
+const ENTRY_COST = `coalesce((SELECT c.unit_cost FROM inventory_movements c WHERE c.corrects_movement_id = m.id AND c.unit_cost IS NOT NULL ORDER BY c.id DESC LIMIT 1), m.unit_cost)`;
+
+export type EntryState = {
+  id: number;
+  productId: number;
+  unitId: number | null;
+  kind: MovementKind;
+  /** Cantidad y costo vigentes, ya con las correcciones */
+  quantity: number;
+  unitCost: number | null;
+  expenseId: number | null;
+};
+
+/** Un movimiento con lo que vale hoy si es una entrada (con sus correcciones). Bloquea la fila para corregirla sin choques. */
+export async function findEntryState(db: Queryable, movementId: number): Promise<EntryState | undefined> {
+  const { rows } = await db.query<EntryState>(
+    `SELECT m.id, m.product_id AS "productId", m.unit_id AS "unitId", m.kind,
+            ${ENTRY_QUANTITY} AS quantity, ${ENTRY_COST} AS "unitCost", m.expense_id AS "expenseId"
+     FROM inventory_movements m WHERE m.id = $1`,
+    [movementId],
+  );
+  return rows[0];
+}
+
+/** La entrada con la que llegó una moto. */
+export async function findEntryOfUnit(db: Queryable, unitId: number): Promise<EntryState | undefined> {
+  const { rows } = await db.query<{ id: number }>(`SELECT id FROM inventory_movements WHERE unit_id = $1 AND kind = 'entrada' ORDER BY id LIMIT 1`, [unitId]);
+  return rows[0] ? findEntryState(db, rows[0].id) : undefined;
+}
+
+/** ¿Hay una compra con costo registrada después de esta entrada? (si no, el costo del producto es el de esta) */
+export async function hasLaterCostedEntry(db: Queryable, productId: number, afterMovementId: number): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM inventory_movements WHERE product_id = $1 AND kind = 'entrada' AND id > $2 AND unit_cost IS NOT NULL LIMIT 1`,
+    [productId, afterMovementId],
+  );
+  return rows.length > 0;
 }
 
 export async function countMovements(db: Queryable, productId: number): Promise<number> {
@@ -232,7 +280,10 @@ export async function findMovementPage(db: Queryable, productId: number, limit: 
   const { rows } = await db.query<InventoryMovement>(
     `SELECT m.id, m.product_id AS "productId", m.unit_id AS "unitId", u.serial AS "unitSerial", m.kind, m.quantity,
             m.stock_after AS "stockAfter", m.unit_cost AS "unitCost", m.sale_id AS "saleId",
-            m.workshop_order_id AS "workshopOrderId", m.note, us.role AS "createdByRole", m.created_at AS "createdAt"
+            m.workshop_order_id AS "workshopOrderId", m.note, us.role AS "createdByRole", m.created_at AS "createdAt",
+            m.expense_id AS "expenseId", m.corrects_movement_id AS "correctsMovementId",
+            CASE WHEN m.kind = 'entrada' THEN ${ENTRY_QUANTITY} END AS "effectiveQuantity",
+            CASE WHEN m.kind = 'entrada' THEN ${ENTRY_COST} END AS "effectiveUnitCost"
      FROM inventory_movements m
      LEFT JOIN product_units u ON u.id = m.unit_id
      LEFT JOIN users us ON us.id = m.created_by
