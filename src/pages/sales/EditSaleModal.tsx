@@ -11,6 +11,7 @@ import ProductPicker from "@/components/ProductPicker";
 import Segmented from "@/components/Segmented";
 import { FormError, Icon, Modal, Select, TextArea, TextInput, Toggle, UnstyledButton } from "@/components/ui";
 import { formatQuetzales } from "@/lib/format";
+import SatInvoiceFields, { readSatInvoice } from "@/pages/sales/SatInvoiceFields";
 import { formatTaxId } from "@/lib/taxId";
 
 type EditableItem = {
@@ -63,6 +64,9 @@ export default function EditSaleModal({
   // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
   const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
+  const [satSeries, setSatSeries] = useState("");
+  const [satNumber, setSatNumber] = useState("");
+  const [satErrors, setSatErrors] = useState<Record<string, string>>({});
   const [items, setItems] = useState<EditableItem[]>([]);
   const [originalCategories, setOriginalCategories] = useState<{ id: number; name: string }[]>([]);
 
@@ -93,6 +97,8 @@ export default function EditSaleModal({
           setClientAddress("");
         }
         setObservations(detail.observations || "");
+        setSatSeries(detail.satInvoice?.series ?? "");
+        setSatNumber(detail.satInvoice?.number ?? "");
         setOriginalCategories(detail.items.map((it) => ({ id: it.categoryId, name: it.categoryName })));
         setItems(
           detail.items.map((it) => ({
@@ -237,12 +243,21 @@ export default function EditSaleModal({
         }
       : undefined;
 
+    // Factura de la SAT: los dos campos vacíos la quitan (queda pendiente); uno solo es un error
+    const sat = readSatInvoice(satSeries, satNumber);
+    setSatErrors(sat.errors ?? {});
+    if (isInvoiced && sat.errors) {
+      setError(Object.values(sat.errors)[0]);
+      return;
+    }
+
     const payload: UpdateSaleInput = {
       sellerId,
       paymentMethod: paymentMethod as PaymentMethod,
       isInvoiced,
       client: clientPayload,
       observations: observations.trim() || undefined,
+      satInvoice: isInvoiced ? (sat.value ?? null) : null,
       items: saleItems,
     };
 
@@ -389,6 +404,14 @@ export default function EditSaleModal({
                 value={clientAddress}
                 onChange={setClientAddress}
                 placeholder="Dirección fiscal"
+              />
+              <SatInvoiceFields
+                series={satSeries}
+                number={satNumber}
+                onSeries={setSatSeries}
+                onNumber={setSatNumber}
+                errors={satErrors}
+                hint="Serie y número de la factura emitida en la app de la SAT. Si los dejas vacíos, la venta queda con la factura pendiente."
               />
             </div>
           )}

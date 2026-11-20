@@ -1466,6 +1466,78 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
     });
   });
 
+  describe("factura de la SAT (serie y número)", () => {
+    const invoicedSale = (satInvoice?: { series: string; number: string }) => ({
+      ...counterSale(),
+      isInvoiced: true,
+      client: { taxIdType: "CF", taxId: "CF", name: "Consumidor Final", address: "Ciudad" },
+      ...(satInvoice && { satInvoice }),
+    });
+    let withInvoiceId: number;
+    let pendingId: number;
+
+    it("se guarda al registrar la venta, con la serie en mayúsculas", async () => {
+      const { status, data } = await admin("POST", "/sales", invoicedSale({ series: " a1b2c3d4 ", number: "1234567890" }));
+      assert.equal(status, 201);
+      withInvoiceId = data.id;
+      const { data: detail } = await admin("GET", `/sales/${data.id}`);
+      assert.deepEqual(detail.satInvoice, { series: "A1B2C3D4", number: "1234567890" });
+    });
+
+    it("la misma factura no puede quedar en dos ventas, y entonces la venta no se guarda", async () => {
+      const before = (await admin("GET", "/sales?pageSize=1")).data.totalItems;
+      const repeated = await admin("POST", "/sales", invoicedSale({ series: "a1b2c3d4", number: "1234567890" }));
+      assert.equal(repeated.status, 409);
+      assert.match(repeated.data.error, new RegExp(`ya está registrada en la venta #${withInvoiceId}`));
+      assert.equal((await admin("GET", "/sales?pageSize=1")).data.totalItems, before);
+
+      const badNumber = await admin("POST", "/sales", invoicedSale({ series: "A1B2", number: "12a" }));
+      assert.equal(badNumber.status, 400);
+      assert.ok(badNumber.data.fields["satInvoice.number"]);
+    });
+
+    it("si todavía no se emitió, queda pendiente y se registra después", async () => {
+      const { data: sale } = await employee("POST", "/sales", invoicedSale());
+      pendingId = sale.id;
+      const { data: pending } = await admin("GET", "/sales?satPending=true&pageSize=100");
+      assert.ok(pending.items.some((s: any) => s.id === pendingId), "aparece en el filtro de pendientes");
+      assert.ok(!pending.items.some((s: any) => s.id === withInvoiceId));
+
+      const byEmployee = await employee("PUT", `/sales/${pendingId}/sat-invoice`, { satInvoice: { series: "B9", number: "55" } });
+      assert.equal(byEmployee.status, 200);
+      assert.deepEqual(byEmployee.data.satInvoice, { series: "B9", number: "55" });
+      assert.equal((await employee("PUT", `/sales/${pendingId}/sat-invoice`, { satInvoice: { series: "B9", number: "56" } })).status, 403, "cambiarla es del Administrador");
+      assert.equal((await employee("PUT", `/sales/${pendingId}/sat-invoice`, { satInvoice: null })).status, 403);
+
+      const byAdmin = await admin("PUT", `/sales/${pendingId}/sat-invoice`, { satInvoice: { series: "B9", number: "56" } });
+      assert.equal(byAdmin.status, 200);
+      assert.equal(byAdmin.data.satInvoice.number, "56");
+      const taken = await admin("PUT", `/sales/${pendingId}/sat-invoice`, { satInvoice: { series: "A1B2C3D4", number: "1234567890" } });
+      assert.equal(taken.status, 409);
+    });
+
+    it("una venta sin factura no lleva número de la SAT", async () => {
+      const { data: sale } = await admin("POST", "/sales", counterSale());
+      assert.equal((await admin("PUT", `/sales/${sale.id}/sat-invoice`, { satInvoice: { series: "C1", number: "1" } })).status, 400);
+    });
+
+    it("al editar: se conserva si no se envía, se quita con null o al dejar de facturar", async () => {
+      const { data: sale } = await admin("GET", `/sales/${pendingId}`);
+      const base = { ...editPayload(sale, sale.items[0].unitPrice), isInvoiced: true, client: { taxIdType: "CF", taxId: "CF", name: "Consumidor Final", address: "Ciudad" } };
+
+      const kept = await admin("PUT", `/sales/${pendingId}`, base);
+      assert.equal(kept.status, 200);
+      assert.deepEqual(kept.data.satInvoice, { series: "B9", number: "56" });
+
+      const removed = await admin("PUT", `/sales/${pendingId}`, { ...base, satInvoice: null });
+      assert.equal(removed.data.satInvoice, null);
+
+      await admin("PUT", `/sales/${pendingId}/sat-invoice`, { satInvoice: { series: "B9", number: "57" } });
+      const notInvoiced = await admin("PUT", `/sales/${pendingId}`, editPayload(sale, sale.items[0].unitPrice));
+      assert.equal(notInvoiced.data.satInvoice, null, "al dejar de facturar se quita");
+    });
+  });
+
   // Va al final: el cierre deja en solo lectura todas las ventas creadas hasta aquí
   it("una venta cerrada no se edita ni se elimina, su orden no cambia y el historial la marca", async () => {
     const { orderId, sale } = await chargedWorkshopOrder();

@@ -14,6 +14,7 @@ import { formatQuetzales, SALE_TIME_FORMAT } from "@/lib/format";
 import DeletedSalesPanel from "@/pages/sales/DeletedSalesPanel";
 import EditSaleModal from "@/pages/sales/EditSaleModal";
 import { SaleInvoice } from "@/pages/sales/InvoicePreview";
+import { SatInvoiceModal } from "@/pages/sales/SatInvoiceFields";
 
 const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
@@ -37,6 +38,9 @@ export default function SalesHistory({ role }: { role: Role }) {
   const [selectedInvoiceSale, setSelectedInvoiceSale] = useState<SaleDetail | null>(null);
   const [loadingInvoiceId, setLoadingInvoiceId] = useState<number | null>(null);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
+  // Registrar la serie y el número de la factura emitida en la app de la SAT
+  const [satFor, setSatFor] = useState<SaleSummary | null>(null);
+  const [filterSatPending, setFilterSatPending] = useState(false);
   const [deletingSaleId, setDeletingSaleId] = useState<number | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   // Historial de ventas eliminadas (solo Administrador)
@@ -83,6 +87,9 @@ export default function SalesHistory({ role }: { role: Role }) {
       if (filterPendingCommission) {
         filters.hasPendingCommission = true;
       }
+      if (filterSatPending) {
+        filters.satPending = true;
+      }
     }
     if (debouncedSearch.trim()) {
       filters.search = debouncedSearch.trim();
@@ -96,6 +103,7 @@ export default function SalesHistory({ role }: { role: Role }) {
     filterPayment,
     filterStatus,
     filterPendingCommission,
+    filterSatPending,
     debouncedSearch,
     sellerOptions,
     categoryOptions,
@@ -270,6 +278,10 @@ export default function SalesHistory({ role }: { role: Role }) {
             />
             <span>Comisión pendiente</span>
           </label>
+          <label className="filter-check">
+            <input type="checkbox" checked={filterSatPending} onChange={(e) => onFilter(setFilterSatPending)(e.target.checked)} />
+            <span>Factura SAT pendiente</span>
+          </label>
         </Card>
       )}
 
@@ -342,9 +354,27 @@ export default function SalesHistory({ role }: { role: Role }) {
                         <Badge tone={row.isInvoiced ? "success" : "neutral"}>
                           {row.isInvoiced ? "Facturada" : "No facturada"}
                         </Badge>
+                        {row.isInvoiced && (
+                          <div className="sat-cell">
+                            {row.satInvoice ? (
+                              <span title="Serie y número de la factura de la SAT">
+                                {row.satInvoice.series} · {row.satInvoice.number}
+                              </span>
+                            ) : (
+                              <span className="sat-pending">Factura SAT pendiente</span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div className="row-actions">
+                          {row.isInvoiced && (isAdmin || !row.satInvoice) && (
+                            <IconButton
+                              icon="receipt"
+                              label={row.satInvoice ? "Cambiar la factura SAT" : "Registrar la factura SAT"}
+                              onClick={() => setSatFor(row)}
+                            />
+                          )}
                           {row.isInvoiced && (
                             <IconButton
                               icon="file"
@@ -389,6 +419,25 @@ export default function SalesHistory({ role }: { role: Role }) {
           </>
         )}
       </Card>
+
+      {satFor && (
+        <SatInvoiceModal
+          saleId={satFor.id}
+          current={satFor.satInvoice}
+          isAdmin={isAdmin}
+          onClose={() => setSatFor(null)}
+          onSaved={(invoice) => {
+            setFeedback({
+              text: invoice
+                ? `Venta #${satFor.id}: factura SAT serie ${invoice.series} No. ${invoice.number} registrada.`
+                : `Venta #${satFor.id}: se quitó la factura SAT; queda pendiente.`,
+              isError: false,
+            });
+            setSatFor(null);
+            refetch();
+          }}
+        />
+      )}
 
       {/* Modal para editar venta (solo Administrador) */}
       {editingSaleId && (

@@ -89,6 +89,10 @@ function saleFilterConditions(filters: SaleFilters): { where: string; params: un
     conditions.push(`EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.category_id = $${params.length})`);
   }
 
+  if (filters.satPending) {
+    conditions.push(`s.is_invoiced AND NOT EXISTS (SELECT 1 FROM fel_documents fd WHERE fd.sale_id = s.id AND fd.status <> 'anulado')`);
+  }
+
   if (filters.hasPendingCommission) {
     conditions.push(`EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.commission_rate IS NULL)`);
   }
@@ -131,12 +135,14 @@ export async function findSummaryPage(
             string_agg(i.description, ', ' ORDER BY i.id) AS "itemsSummary",
             coalesce(sum(i.commission_amount), 0) AS "commissionAmount",
             bool_or(i.commission_rate IS NULL) AS "hasPendingCommission",
-            ${inClosedPeriod("s.sold_at")} AS "isClosed"
+            ${inClosedPeriod("s.sold_at")} AS "isClosed",
+            CASE WHEN f.series IS NOT NULL THEN json_build_object('series', f.series, 'number', f.number) END AS "satInvoice"
      FROM sales s
      JOIN staff st ON st.id = s.seller_id
      JOIN sale_items i ON i.sale_id = s.id
+     LEFT JOIN fel_documents f ON f.sale_id = s.id AND f.status <> 'anulado'
      ${where}
-     GROUP BY s.id, st.full_name
+     GROUP BY s.id, st.full_name, f.series, f.number
      ORDER BY s.sold_at DESC, s.id DESC
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset],
@@ -165,9 +171,11 @@ export async function findDetail(db: Queryable, id: number): Promise<SaleDetail 
             s.client_name AS "clientName",
             s.client_address AS "clientAddress",
             s.observations,
-            s.total
+            s.total,
+            CASE WHEN f.series IS NOT NULL THEN json_build_object('series', f.series, 'number', f.number) END AS "satInvoice"
      FROM sales s
      JOIN staff st ON st.id = s.seller_id
+     LEFT JOIN fel_documents f ON f.sale_id = s.id AND f.status <> 'anulado'
      WHERE s.id = $1`,
     [id],
   );
@@ -193,6 +201,33 @@ export async function findDetail(db: Queryable, id: number): Promise<SaleDetail 
       ? { taxIdType: clientTaxIdType, taxId: clientTaxId, name: clientName, address: clientAddress }
       : null;
   return { ...sale, client, items };
+}
+
+// ─── factura de la SAT ──────────────────────────────────────────────────────
+
+/** ¿Esa serie y número ya están en otra venta? Devuelve el id de esa venta. */
+export async function findSatInvoiceSale(db: Queryable, invoice: { series: string; number: string }, exceptSaleId?: number): Promise<number | undefined> {
+  const { rows } = await db.query<{ saleId: number }>(
+    `SELECT sale_id AS "saleId" FROM fel_documents
+     WHERE upper(series) = upper($1) AND number = $2 AND status <> 'anulado' AND ($3::bigint IS NULL OR sale_id <> $3)
+     LIMIT 1`,
+    [invoice.series, invoice.number, exceptSaleId ?? null],
+  );
+  return rows[0]?.saleId;
+}
+
+/** Guarda (o reemplaza) la serie y el número de la factura de la SAT de una venta. */
+export async function saveSatInvoice(db: Queryable, saleId: number, invoice: { series: string; number: string }): Promise<void> {
+  await db.query(
+    `INSERT INTO fel_documents (sale_id, status, series, number, certified_at)
+     VALUES ($1, 'certificado', $2, $3, now())
+     ON CONFLICT (sale_id) DO UPDATE SET status = 'certificado', series = EXCLUDED.series, number = EXCLUDED.number, certified_at = now()`,
+    [saleId, invoice.series, invoice.number],
+  );
+}
+
+export async function deleteSatInvoice(db: Queryable, saleId: number): Promise<void> {
+  await db.query(`DELETE FROM fel_documents WHERE sale_id = $1`, [saleId]);
 }
 
 // Compara NIT y CUI sin guiones, espacios ni diferencias de mayúsculas: "5489632-1" y "54896321"

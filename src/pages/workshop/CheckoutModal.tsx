@@ -11,6 +11,7 @@ import { formatQuetzales } from "@/lib/format";
 import { formatTaxId } from "@/lib/taxId";
 import { issuesToErrors } from "@/lib/validation";
 import ClientLookupHint from "@/pages/sales/ClientLookupHint";
+import SatInvoiceFields, { readSatInvoice } from "@/pages/sales/SatInvoiceFields";
 
 const CHOOSE_SELLER = "Elige quién cobra";
 
@@ -35,6 +36,8 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
   const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
+  const [satSeries, setSatSeries] = useState("");
+  const [satNumber, setSatNumber] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -85,12 +88,18 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
   };
 
   const handleConfirm = async () => {
+    const sat = readSatInvoice(satSeries, satNumber);
+    if (isInvoiced && sat.errors) {
+      setErrors(sat.errors);
+      return;
+    }
     const input = {
       sellerId: seller?.id,
       paymentMethod,
       isInvoiced,
       client: isInvoiced ? { taxIdType: isCF ? ("CF" as const) : taxIdType, taxId, name: clientName, address: clientAddress } : undefined,
       observations: observations.trim() || undefined,
+      satInvoice: isInvoiced ? sat.value : undefined,
     };
     const parsed = workshopCheckoutSchema.safeParse(input);
     // Con los artículos de la orden se revisan las reglas de venta que dependen del total
@@ -194,6 +203,7 @@ export default function CheckoutModal({ order, onClose, onConfirm }: Props) {
           )}
           <TextInput label="Nombre o razón social" value={clientName} onChange={setClientName} error={errors["client.name"]} />
           <TextInput label="Dirección fiscal (opcional)" value={clientAddress} onChange={setClientAddress} error={errors["client.address"]} />
+          <SatInvoiceFields series={satSeries} number={satNumber} onSeries={setSatSeries} onNumber={setSatNumber} errors={errors} />
         </div>
       )}
 

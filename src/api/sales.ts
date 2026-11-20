@@ -31,4 +31,7 @@ export const salesApi = {
     }
   },
   invoiceUsage: () => api.get<InvoiceUsage>("/sales/invoice-usage"),
+  /** Registrar, cambiar o quitar (null) la factura de la app de la SAT de una venta */
+  setSatInvoice: (id: number, satInvoice: { series: string; number: string } | null) =>
+    api.put<SaleDetail>(`/sales/${id}/sat-invoice`, { satInvoice }),
 };

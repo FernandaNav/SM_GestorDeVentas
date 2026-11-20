@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { idParamSchema, paginationSchema } from "@shared/schemas/common";
-import { createSaleSchema, deleteSaleSchema, deletedSaleFiltersSchema, saleFiltersSchema, updateSaleSchema } from "@shared/schemas/sales";
+import { createSaleSchema, deleteSaleSchema, deletedSaleFiltersSchema, saleFiltersSchema, updateSaleSchema, satInvoiceUpdateSchema } from "@shared/schemas/sales";
 import { currentUser, requireRole } from "../../middlewares/auth";
 import * as salesService from "./sales.service";
 
@@ -55,6 +55,13 @@ salesRouter.put("/:id", requireRole("Administrador"), async (req, res) => {
 });
 
 // Eliminar solo el Administrador, con bitácora (RF 6.2)
+// Factura de la app de la SAT de una venta ya guardada: { satInvoice: { series, number } | null }
+// (el Empleado solo la registra en ventas de hoy que no la tienen; ver salesService.setSatInvoice)
+salesRouter.put("/:id/sat-invoice", async (req, res) => {
+  const { id } = idParamSchema.parse(req.params);
+  res.json(await salesService.setSatInvoice(id, satInvoiceUpdateSchema.parse(req.body).satInvoice, req));
+});
+
 salesRouter.delete("/:id", requireRole("Administrador"), async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
   const { reason } = deleteSaleSchema.parse(req.body ?? {});
