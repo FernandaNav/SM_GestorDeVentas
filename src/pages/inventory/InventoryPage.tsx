@@ -40,7 +40,8 @@ export default function InventoryPage({ role }: { role: Role }) {
   const [entryFor, setEntryFor] = useState<Product | null>(null);
   const [adjustFor, setAdjustFor] = useState<Product | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Aviso dentro de la página. Al desactivar, trae "Deshacer" para volver a activarlo en un clic
+  const [notice, setNotice] = useState<{ text: string; tone: "ok" | "warning"; undo?: Product } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const filters = {
@@ -59,18 +60,22 @@ export default function InventoryPage({ role }: { role: Role }) {
   };
 
   const afterChange = async (message?: string) => {
-    if (message) setNotice(message);
+    if (message) setNotice({ text: message, tone: "ok" });
     await Promise.all([refetch(), summary.refetch()]);
   };
 
   const toggleActive = async (product: Product, isActive: boolean) => {
-    // Desactivar lo saca de la lista y de la venta: se confirma para que no pase por un clic sin querer
-    // (si se cancela, el interruptor regresa solo)
-    if (!isActive && !window.confirm(`¿Desactivar "${product.name}"? Dejará de ofrecerse al vender. Sus existencias y su historial se conservan.`)) return;
+    // El interruptor se mueve al instante, como los demás; en vez de preguntar antes, el aviso
+    // de la página permite deshacerlo si fue un clic sin querer
     setActionError(null);
     try {
       await inventoryApi.setActive(product.id, isActive);
-      await afterChange(isActive ? `"${product.name}" vuelve a ofrecerse` : `"${product.name}" ya no se ofrece al vender`);
+      await afterChange();
+      setNotice(
+        isActive
+          ? { text: `"${product.name}" vuelve a ofrecerse al vender`, tone: "ok" }
+          : { text: `"${product.name}" ya no se ofrece al vender. Sus existencias y su historial se conservan.`, tone: "warning", undo: product },
+      );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "No se pudo cambiar el estado");
     }
@@ -126,9 +131,14 @@ export default function InventoryPage({ role }: { role: Role }) {
         </div>
 
         {notice && (
-          <div className="cf-warning inventory-notice" role="status">
-            <Icon name="check" size="sm" />
-            <span>{notice}</span>
+          <div className={`cf-warning inventory-notice${notice.tone === "warning" ? " is-warning" : ""}`} role="status">
+            <Icon name={notice.tone === "warning" ? "bell" : "check"} size="sm" />
+            <span>{notice.text}</span>
+            {notice.undo && (
+              <button type="button" className="picker-link" onClick={() => notice.undo && toggleActive(notice.undo, true)}>
+                Deshacer
+              </button>
+            )}
             <button type="button" className="icon-button" onClick={() => setNotice(null)} aria-label="Cerrar aviso">×</button>
           </div>
         )}
