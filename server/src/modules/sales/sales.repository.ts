@@ -22,6 +22,8 @@ export type NewSaleItemRow = {
   unitPrice: number;
   commissionRate: number | null;
   origin: SaleItemOrigin;
+  productId: number | null;
+  unitId: number | null;
 };
 
 export async function insertSale(db: Queryable, sale: NewSaleRow): Promise<number> {
@@ -50,9 +52,9 @@ export async function insertSale(db: Queryable, sale: NewSaleRow): Promise<numbe
 export async function insertItems(db: Queryable, saleId: number, items: NewSaleItemRow[]) {
   for (const item of items) {
     await db.query(
-      `INSERT INTO sale_items (sale_id, description, category_id, quantity, unit_price, commission_rate, origin)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [saleId, item.description, item.categoryId, item.quantity, item.unitPrice, item.commissionRate, item.origin],
+      `INSERT INTO sale_items (sale_id, description, category_id, quantity, unit_price, commission_rate, origin, product_id, unit_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [saleId, item.description, item.categoryId, item.quantity, item.unitPrice, item.commissionRate, item.origin, item.productId, item.unitId],
     );
   }
 }
@@ -175,9 +177,11 @@ export async function findDetail(db: Queryable, id: number): Promise<SaleDetail 
   const { rows: items } = await db.query<SaleItem>(
     `SELECT i.id, i.description, i.category_id AS "categoryId", c.name AS "categoryName",
             i.quantity, i.unit_price AS "unitPrice", i.subtotal, i.origin,
-            i.commission_rate AS "commissionRate", i.commission_amount AS "commissionAmount"
+            i.commission_rate AS "commissionRate", i.commission_amount AS "commissionAmount",
+            i.product_id AS "productId", i.unit_id AS "unitId", u.serial AS "unitSerial", u.engine_number AS "engineNumber"
      FROM sale_items i
      JOIN categories c ON c.id = i.category_id
+     LEFT JOIN product_units u ON u.id = i.unit_id
      WHERE i.sale_id = $1
      ORDER BY i.id`,
     [id],

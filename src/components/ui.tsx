@@ -34,9 +34,11 @@ export type IconName =
   | "eye"
   | "moon"
   | "sun"
-  | "phone";
+  | "phone"
+  | "box";
 
 const paths: Record<IconName, ReactNode> = {
+  box: <><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></>,
   phone: <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/>,
   home: <><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10M9 20v-6h6v6"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,
@@ -349,8 +351,11 @@ export function FormError({ message }: { message: string }) {
   return <div className="cf-warning form-error" role="alert"><Icon name="bell" size="sm" /><span>{message}</span></div>;
 }
 
-/** `wide`: para formularios con tablas o varias columnas que no caben en el ancho normal. */
-export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false, wide = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean; wide?: boolean }) {
+/**
+ * `wide`: para formularios con tablas o varias columnas que no caben en el ancho normal.
+ * `hideCancel`: para ventanas de solo consulta, donde el único botón es el de cerrar.
+ */
+export function Modal({ open, title, children, onClose, onConfirm, confirmLabel = "Confirmar", confirmDisabled = false, wide = false, hideCancel = false }: { open: boolean; title: string; children: ReactNode; onClose: () => void; onConfirm: () => void; confirmLabel?: string; confirmDisabled?: boolean; wide?: boolean; hideCancel?: boolean }) {
   if (!open) return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-scrim" aria-hidden="true" /><div className={wide ? "modal modal-wide" : "modal"} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="modal-scrim" aria-hidden="true" /><div className={wide ? "modal modal-wide" : "modal"} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}><div className="modal-title">{title}</div><div className="modal-body">{children}</div><div className="modal-actions">{!hideCancel && <Button variant="secondary" onClick={onClose}>Cancelar</Button>}<Button onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</Button></div></div></div>;
 }

@@ -2,6 +2,7 @@ import type { Request } from "express";
 import type pg from "pg";
 import { INVOICE_LIMIT_ENABLED, type Role, type SaleItemOrigin } from "@shared/constants";
 import type { Page, Pagination } from "@shared/schemas/common";
+import type { Product } from "@shared/schemas/inventory";
 import {
   calculateTotal,
   type CreateSaleInput,
@@ -19,6 +20,8 @@ import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
 import * as categoriesRepository from "../categories/categories.repository";
+import * as inventoryRepository from "../inventory/inventory.repository";
+import * as inventoryService from "../inventory/inventory.service";
 import * as staffRepository from "../staff/staff.repository";
 import * as workshopRepository from "../workshop/workshop.repository";
 import * as salesRepository from "./sales.repository";
@@ -34,8 +37,11 @@ export type NewSale = Omit<CreateSaleInput, "items"> & {
  * - Comisión por artículo: la de la categoría, salvo que el Administrador indique otra
  *   (null = pendiente). El Empleado no puede fijar comisiones.
  * - Si se factura a un NIT/CUI, guarda o actualiza el cliente para autocompletar después.
+ * - Las líneas de mostrador con producto del inventario descuentan existencias (y una moto
+ *   pasa a vendida). Si no alcanza, la venta no se guarda.
  * Taller la llama pasando su propio `db` para cobrar la orden dentro de su transacción, y las
- * categorías de la orden en `keptCategoryIds`: se pueden cobrar aunque ya estén inactivas.
+ * categorías de la orden en `keptCategoryIds`: se pueden cobrar aunque ya estén inactivas. Sus
+ * repuestos ya salieron del inventario al agregarlos a la orden, así que aquí no se descuentan.
  */
 export async function createSale(input: NewSale, req: Request, db?: pg.PoolClient, keptCategoryIds?: Set<number>): Promise<SaleDetail> {
   if (!db) return withTransaction((tx) => createSale(input, req, tx, keptCategoryIds));
@@ -64,6 +70,7 @@ export async function createSale(input: NewSale, req: Request, db?: pg.PoolClien
     createdBy: user.id,
   });
   await salesRepository.insertItems(db, saleId, items);
+  await moveSaleStock(db, req, saleId, [], items);
 
   const created = (await salesRepository.findDetail(db, saleId))!;
   await recordAudit(db, req, { action: "crear", entity: "sales", entityId: saleId, after: created });
@@ -120,6 +127,10 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
     if (input.sellerId !== before.sellerId) await assertActiveSeller(db, input.sellerId);
     // Igual que con el vendedor: puede conservar una categoría que se desactivó después
     const items = await resolveItems(db, input.items, user.role, new Set(before.items.map((item) => item.categoryId)));
+    // Los repuestos del taller ya son de su orden: al editar la venta solo puede cambiar su precio
+    if (workshopStockLines(before.items) !== workshopStockLines(items)) {
+      throw new HttpError(400, "Los repuestos del inventario que vienen del taller no se pueden cambiar ni quitar; solo su precio");
+    }
 
     const client = input.isInvoiced && input.client ? input.client : null;
     const clientSnapshot = client
@@ -142,6 +153,8 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
 
     await salesRepository.deleteItems(db, id);
     await salesRepository.insertItems(db, id, items);
+    // Solo se mueve la diferencia: si las cantidades no cambiaron, el kárdex no registra nada
+    await moveSaleStock(db, req, id, before.items, items);
 
     const after = (await salesRepository.findDetail(db, id))!;
     await recordAudit(db, req, { action: "editar", entity: "sales", entityId: id, before, after });
@@ -156,6 +169,9 @@ export async function deleteSale(id: number, req: Request, reason?: string): Pro
     if (!before) throw notFound("la venta");
 
     await reopenWorkshopOrder(db, req, before);
+    // Lo vendido en mostrador regresa al inventario; los repuestos del taller siguen apartados
+    // para su orden, que vuelve a "Lista para entregar"
+    await moveSaleStock(db, req, id, before.items, []);
     await salesRepository.deleteSale(db, id);
     // La copia completa (before) es lo que muestra el historial de ventas eliminadas
     await recordAudit(db, req, { action: "eliminar", entity: "sales", entityId: id, before, after: reason ? { reason } : undefined });
@@ -182,25 +198,95 @@ async function assertActiveSeller(db: pg.PoolClient, sellerId: number) {
 }
 
 async function resolveItems(db: pg.PoolClient, items: NewSale["items"], role: Role, keptCategoryIds = new Set<number>()) {
-  const categoryIds = [...new Set(items.map((item) => item.categoryId))];
+  // Productos del inventario de la venta. No se exige que sigan activos: una venta vieja se puede
+  // editar aunque su producto ya no se ofrezca (el motor sí lo exige al sacar existencias nuevas).
+  const productIds = [...new Set(items.flatMap((item) => (item.productId ? [item.productId] : [])))];
+  const products = new Map<number, Product>();
+  for (const id of productIds) {
+    const product = await inventoryRepository.findProduct(db, id);
+    if (product) products.set(id, product);
+  }
+
+  const lines = items.map((item) => {
+    const origin = item.origin ?? "venta";
+    const product = item.productId ? products.get(item.productId) : undefined;
+    if (item.productId && !product) throw new HttpError(400, `El producto de "${item.description}" ya no existe en el inventario`);
+    if (item.unitId && !product) throw new HttpError(400, `Elige el producto de la moto "${item.description}"`);
+    if (product?.tracksUnits) {
+      if (!item.unitId) throw new HttpError(400, `Elige el número de chasis de "${product.name}"`);
+      if (item.quantity !== 1) throw new HttpError(400, `Cada moto se vende en su propia línea (cantidad 1): "${product.name}"`);
+    } else if (product && item.unitId) {
+      throw new HttpError(400, `"${product.name}" no se controla por unidad`);
+    }
+    // En mostrador la categoría la pone el producto, no la pantalla; las líneas del taller
+    // conservan la que tenían en la orden
+    const categoryId = product && origin === "venta" ? product.categoryId : item.categoryId;
+    return { item, origin, categoryId };
+  });
+
+  const categoryIds = [...new Set(lines.map((line) => line.categoryId))];
   const categories = new Map((await categoriesRepository.findByIds(db, categoryIds)).map((c) => [c.id, c]));
 
-  return items.map((item) => {
-    const category = categories.get(item.categoryId);
+  return lines.map(({ item, origin, categoryId }) => {
+    const category = categories.get(categoryId);
     if (!category || (!category.isActive && !keptCategoryIds.has(category.id))) {
       throw new HttpError(400, `La categoría del artículo "${item.description}" no existe o está inactiva`);
     }
     const adminChoseRate = role === "Administrador" && item.commissionRate !== undefined;
     return {
       description: item.description,
-      categoryId: item.categoryId,
+      categoryId,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       commissionRate: adminChoseRate ? (item.commissionRate ?? null) : category.defaultCommissionRate,
-      origin: item.origin ?? "venta",
+      origin,
+      productId: item.productId ?? null,
+      unitId: item.unitId ?? null,
     };
   });
 }
+
+/** Lo mínimo de una línea para saber qué mueve en el inventario. */
+type StockItem = { origin?: SaleItemOrigin; productId?: number | null; unitId?: number | null; quantity: number };
+
+/** Líneas de mostrador con producto, sumadas por producto y unidad: son las únicas que mueven existencias desde Ventas. */
+function counterStock(items: StockItem[]): Map<string, inventoryService.StockLine> {
+  const lines = new Map<string, inventoryService.StockLine>();
+  for (const item of items) {
+    if ((item.origin ?? "venta") !== "venta" || !item.productId) continue;
+    const key = `${item.productId}:${item.unitId ?? ""}`;
+    const line = lines.get(key);
+    if (line) line.quantity += item.quantity;
+    else lines.set(key, { productId: item.productId, unitId: item.unitId ?? null, quantity: item.quantity });
+  }
+  return lines;
+}
+
+/**
+ * Lleva el inventario de cómo estaba la venta (`before`) a cómo queda (`after`): regresa lo que
+ * se quitó o bajó y saca lo que se agregó o subió. Primero regresa, para que cambiar una pieza
+ * por otra no falle por existencias.
+ */
+async function moveSaleStock(db: pg.PoolClient, req: Request, saleId: number, before: StockItem[], after: StockItem[]) {
+  const was = counterStock(before);
+  const now = counterStock(after);
+  for (const [key, line] of was) {
+    const returned = line.quantity - (now.get(key)?.quantity ?? 0);
+    if (returned > 0) await inventoryService.returnStock(db, req, { ...line, quantity: returned }, "devolucion_venta", { saleId });
+  }
+  for (const [key, line] of now) {
+    const taken = line.quantity - (was.get(key)?.quantity ?? 0);
+    if (taken > 0) await inventoryService.takeStock(db, req, { ...line, quantity: taken }, "venta", { saleId });
+  }
+}
+
+/** Huella de los repuestos del inventario que vienen del taller (producto, origen y cantidad), para compararla al editar. */
+const workshopStockLines = (items: StockItem[]) =>
+  items
+    .filter((item) => item.origin && item.origin !== "venta" && item.productId)
+    .map((item) => `${item.origin}:${item.productId}:${item.quantity}`)
+    .sort()
+    .join("|");
 
 /** Si la venta editada salió de una orden de taller, la orden debe mostrar lo que realmente se cobró. */
 async function syncWorkshopOrderTotal(db: pg.PoolClient, req: Request, before: SaleDetail, after: SaleDetail) {

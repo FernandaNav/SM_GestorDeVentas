@@ -14,7 +14,7 @@ import { formatTaxId } from "@/lib/taxId";
 import { issuesToErrors } from "@/lib/validation";
 import ClientLookupHint from "@/pages/sales/ClientLookupHint";
 import { SaleInvoice } from "@/pages/sales/InvoicePreview";
-import ItemsTable, { type SaleItem } from "@/pages/sales/ItemsTable";
+import ItemsTable, { inventoryProblem, type SaleItem } from "@/pages/sales/ItemsTable";
 import SaleSuccess from "@/pages/sales/SaleSuccess";
 
 const CHOOSE_SELLER = "Elige el vendedor";
@@ -154,6 +154,9 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
         categoryId: catObj?.id ?? 1,
         quantity: i.qty,
         unitPrice: i.price,
+        // La categoría de un producto la pone el servidor; aquí solo viaja cuál es y su chasis
+        productId: i.productId,
+        unitId: i.tracksUnits ? i.unitId : undefined,
       };
     });
 
@@ -189,6 +192,12 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     if (!parsed.success) {
       setFieldErrors(issuesToErrors(parsed.error.issues));
       setFormError(parsed.error.issues[0].message);
+      return;
+    }
+    // Chasis sin elegir o más de lo que hay: se avisa aquí, antes de que el servidor la rechace
+    const stockProblem = inventoryProblem(items);
+    if (stockProblem) {
+      setFormError(stockProblem);
       return;
     }
     setIsConfirmModalOpen(true);
