@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EXPENSE_AREAS } from "../constants";
 
 // Inventario: productos, motos por unidad (chasis) y kárdex. Ver docs/INVENTARIO.md.
 
@@ -100,8 +101,13 @@ export const stockEntrySchema = z
     units: z.array(unitInputSchema).min(1, "Agrega al menos una unidad").max(50, "Máximo 50 unidades por entrada").optional(),
     unitCost: money.optional(),
     note: optionalText(200, "Máximo 200 caracteres"),
+    /** Registrar también la compra en Gastos (categoría Mercadería), con el área que se elija. */
+    expense: z.object({ area: z.enum(EXPENSE_AREAS, { message: "Elige Tienda o Taller" }) }).optional(),
   })
   .superRefine((entry, ctx) => {
+    if (entry.expense && !(entry.unitCost && entry.unitCost > 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitCost"], message: "Para registrarla como gasto, indica el costo por unidad" });
+    }
     if ((entry.quantity === undefined) === (entry.units === undefined)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["quantity"], message: "Indica la cantidad que entra" });
     }

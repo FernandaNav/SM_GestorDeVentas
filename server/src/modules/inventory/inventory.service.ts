@@ -17,9 +17,12 @@ import type {
 } from "@shared/schemas/inventory";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
+import { todayInGuatemala } from "../../lib/dates";
+import { formatMoney } from "../../lib/format";
 import { HttpError, notFound } from "../../lib/http-error";
 import { currentUser } from "../../middlewares/auth";
 import * as categoriesRepository from "../categories/categories.repository";
+import * as expensesRepository from "../expenses/expenses.repository";
 import * as inventoryRepository from "./inventory.repository";
 
 // ═══ motor de existencias ═══════════════════════════════════════════════════
@@ -211,7 +214,11 @@ export function setActive(id: number, isActive: boolean, req: Request): Promise<
 
 // ═══ movimientos del Administrador ══════════════════════════════════════════
 
-/** Entrada de mercadería: suma existencias (o registra cada moto con su chasis). */
+/**
+ * Entrada de mercadería: suma existencias (o registra cada moto con su chasis). Si se pide, la
+ * compra queda también en Gastos (categoría Mercadería) en la misma transacción: o se guardan
+ * las dos cosas, o ninguna.
+ */
 export function addEntry(productId: number, input: StockEntryInput, req: Request): Promise<ProductDetail> {
   return withTransaction(async (db) => {
     const product = await inventoryRepository.lockProduct(db, productId);
@@ -250,6 +257,20 @@ export function addEntry(productId: number, input: StockEntryInput, req: Request
       });
     }
 
+    const quantity = input.quantity ?? input.units?.length ?? 0;
+    let expense: { id: number; amount: number } | undefined;
+    if (input.expense && input.unitCost) {
+      const amount = Math.round(input.unitCost * quantity * 100) / 100;
+      const description = `Entrada de mercadería: ${quantity} × ${product.name} (${formatMoney(input.unitCost)} c/u)${input.note ? ` · ${input.note}` : ""}`;
+      const created = await expensesRepository.insert(
+        db,
+        { spentOn: todayInGuatemala(), amount, area: input.expense.area, category: "Mercadería", description: description.slice(0, 200) },
+        createdBy,
+      );
+      await recordAudit(db, req, { action: "crear", entity: "expenses", entityId: created.id, after: { ...created, productId } });
+      expense = { id: created.id, amount };
+    }
+
     // El costo del producto queda como el de la última compra
     if (input.unitCost !== undefined && input.unitCost !== product.cost) {
       await inventoryRepository.updateProduct(db, productId, { ...toInput(product), cost: input.unitCost });
@@ -260,7 +281,7 @@ export function addEntry(productId: number, input: StockEntryInput, req: Request
       entity: "inventory_entries",
       entityId: productId,
       before: { stock: product.stock },
-      after: { stock: after.stock, quantity: input.quantity ?? input.units?.length, units: input.units, unitCost: input.unitCost, note: input.note },
+      after: { stock: after.stock, quantity, units: input.units, unitCost: input.unitCost, note: input.note, expenseId: expense?.id },
     });
     return { ...after, units: after.tracksUnits ? await inventoryRepository.findUnits(db, productId) : [] };
   });

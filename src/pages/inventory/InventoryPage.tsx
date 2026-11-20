@@ -232,10 +232,12 @@ export default function InventoryPage({ role }: { role: Role }) {
         <StockEntryModal
           product={entryFor}
           onClose={() => setEntryFor(null)}
-          onSaved={async () => {
+          onSaved={async (expenseAmount) => {
             const name = entryFor.name;
             setEntryFor(null);
-            await afterChange(`Se registró la entrada de "${name}"`);
+            await afterChange(
+              expenseAmount ? `Se registró la entrada de "${name}" y el gasto de ${formatQuetzales(expenseAmount)} en Gastos` : `Se registró la entrada de "${name}"`,
+            );
           }}
         />
       )}

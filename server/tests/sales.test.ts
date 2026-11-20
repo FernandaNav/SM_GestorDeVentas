@@ -1184,6 +1184,39 @@ describe("ventas", { skip: TEST_DATABASE_URL ? false : "Falta TEST_DATABASE_URL"
       assert.equal(data.availableUnits, 1);
       assert.equal(data.stockValue, 3 * 620 + 1 * 19000);
     });
+
+    it("una entrada puede quedar también como gasto de Mercadería", async () => {
+      const { data: tire } = await admin("POST", "/inventory/products", { name: "Llanta Pirelli 90/90", categoryId: accessoryId, salePrice: 520, minStock: 0, tracksUnits: false });
+      const today = (await import("../src/lib/dates")).todayInGuatemala();
+      const expensesOfToday = async () => (await admin("GET", `/expenses?from=${today}&to=${today}&pageSize=100`)).data.items as any[];
+      const before = (await expensesOfToday()).length;
+
+      const noCost = await admin("POST", `/inventory/products/${tire.id}/entries`, { quantity: 4, expense: { area: "Taller" } });
+      assert.equal(noCost.status, 400, "sin costo no hay gasto que registrar");
+      assert.ok(noCost.data.fields.unitCost);
+
+      const entry = await admin("POST", `/inventory/products/${tire.id}/entries`, { quantity: 4, unitCost: 310.5, note: "Factura 88", expense: { area: "Taller" } });
+      assert.equal(entry.status, 201);
+      assert.equal(entry.data.stock, 4);
+      const created = (await expensesOfToday()).find((e) => e.category === "Mercadería" && e.description.includes("Llanta Pirelli"));
+      assert.ok(created, "el gasto aparece en Gastos");
+      assert.equal(created.amount, 1242);
+      assert.equal(created.area, "Taller");
+      assert.match(created.description, /4 × Llanta Pirelli 90\/90/);
+
+      const without = await admin("POST", `/inventory/products/${tire.id}/entries`, { quantity: 2, unitCost: 310.5 });
+      assert.equal(without.status, 201);
+      assert.equal((await expensesOfToday()).length, before + 1, "sin la opción no se registra gasto");
+    });
+
+    it("si la entrada falla, tampoco queda el gasto", async () => {
+      const today = (await import("../src/lib/dates")).todayInGuatemala();
+      const count = async () => (await admin("GET", `/expenses?from=${today}&to=${today}&pageSize=100`)).data.totalItems as number;
+      const before = await count();
+      const repeated = await admin("POST", `/inventory/products/${motoId}/entries`, { units: [{ serial: "9C2KC1610TR000111" }], unitCost: 19000, expense: { area: "Tienda" } });
+      assert.equal(repeated.status, 409);
+      assert.equal(await count(), before);
+    });
   });
 
   describe("inventario en ventas y taller", () => {

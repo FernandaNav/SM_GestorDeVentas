@@ -705,6 +705,7 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .stock-pill.is-low { background: rgba(245, 158, 11, 0.16); color: #b45309; }
 .stock-pill.is-out { background: var(--color-danger-soft, #fee2e2); color: var(--color-danger); }
 tr.row-muted td { opacity: .6; }
+.expense-option { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); }
 .unit-rows { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
 .unit-row { display: grid; grid-template-columns: 28px 1fr 1fr 38px; gap: 10px; align-items: start; }
 .unit-row-number { width: 28px; height: 42px; display: grid; place-items: center; font-weight: 700; color: var(--color-muted); }

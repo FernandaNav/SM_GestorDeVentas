@@ -19,7 +19,8 @@ export type SaleItemOrigin = (typeof SALE_ITEM_ORIGINS)[number];
 export const WORKSHOP_STATUSES = ["Recibida", "En reparación", "Lista para entregar", "Entregada"] as const;
 export type WorkshopStatus = (typeof WORKSHOP_STATUSES)[number];
 
-export const EXPENSE_CATEGORIES = ["Servicios", "Repuestos", "Renta", "Planilla", "Otros"] as const;
+/** "Mercadería" la usan también las entradas del inventario que se registran como gasto. */
+export const EXPENSE_CATEGORIES = ["Mercadería", "Servicios", "Repuestos", "Renta", "Planilla", "Otros"] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
 
