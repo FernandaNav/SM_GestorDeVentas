@@ -12,6 +12,7 @@ import {
   type SaleFilters,
   type SaleItemInput,
   type SaleSummary,
+  type SatInvoiceInput,
 } from "@shared/schemas/sales";
 import { pool, withTransaction } from "../../db/pool";
 import { recordAudit } from "../../lib/audit";
@@ -27,8 +28,10 @@ import * as workshopRepository from "../workshop/workshop.repository";
 import * as salesRepository from "./sales.repository";
 
 /** Venta con artículos que pueden venir del taller (los arma el módulo Taller al cobrar). */
-export type NewSale = Omit<CreateSaleInput, "items"> & {
+export type NewSale = Omit<CreateSaleInput, "items" | "satInvoice"> & {
   items: (SaleItemInput & { origin?: SaleItemOrigin })[];
+  /** Factura de la app de la SAT. Al editar: undefined = se queda la que tenía; null = se quita */
+  satInvoice?: SatInvoiceInput | null;
 };
 
 /**
@@ -71,6 +74,7 @@ export async function createSale(input: NewSale, req: Request, db?: pg.PoolClien
   });
   await salesRepository.insertItems(db, saleId, items);
   await moveSaleStock(db, req, saleId, [], items);
+  await applySatInvoice(db, saleId, input.isInvoiced, input.satInvoice);
 
   const created = (await salesRepository.findDetail(db, saleId))!;
   await recordAudit(db, req, { action: "crear", entity: "sales", entityId: saleId, after: created });
@@ -155,6 +159,7 @@ export async function updateSale(id: number, input: NewSale, req: Request): Prom
     await salesRepository.insertItems(db, id, items);
     // Solo se mueve la diferencia: si las cantidades no cambiaron, el kárdex no registra nada
     await moveSaleStock(db, req, id, before.items, items);
+    await applySatInvoice(db, id, input.isInvoiced, input.satInvoice);
 
     const after = (await salesRepository.findDetail(db, id))!;
     await recordAudit(db, req, { action: "editar", entity: "sales", entityId: id, before, after });
@@ -175,6 +180,32 @@ export async function deleteSale(id: number, req: Request, reason?: string): Pro
     await salesRepository.deleteSale(db, id);
     // La copia completa (before) es lo que muestra el historial de ventas eliminadas
     await recordAudit(db, req, { action: "eliminar", entity: "sales", entityId: id, before, after: reason ? { reason } : undefined });
+  });
+}
+
+/**
+ * Registra, cambia o quita (null) la factura de la app de la SAT de una venta ya guardada.
+ * - Solo en ventas facturadas.
+ * - El Empleado solo la registra en ventas de hoy que todavía no la tienen; cambiarla o quitarla
+ *   es del Administrador (RNF 1.2).
+ * - Se puede aunque el período esté cerrado: el cierre protege montos, y esto solo es un dato.
+ */
+export function setSatInvoice(id: number, invoice: SatInvoiceInput | null, req: Request): Promise<SaleDetail> {
+  return withTransaction(async (db) => {
+    const user = currentUser(req);
+    const before = await salesRepository.findDetail(db, id);
+    if (!before) throw notFound("la venta");
+    const isAdmin = user.role === "Administrador";
+    if (!isAdmin && businessDayOf(before.soldAt) !== todayInGuatemala()) throw notFound("la venta");
+    if (!before.isInvoiced) throw new HttpError(400, "Esta venta no se facturó: no lleva factura de la SAT");
+    if (!isAdmin && (before.satInvoice || !invoice)) {
+      throw new HttpError(403, "Solo el Administrador puede cambiar o quitar la factura de la SAT ya registrada");
+    }
+
+    await applySatInvoice(db, id, true, invoice);
+    const after = (await salesRepository.findDetail(db, id))!;
+    await recordAudit(db, req, { action: "editar", entity: "sales", entityId: id, before: { satInvoice: before.satInvoice }, after: { satInvoice: after.satInvoice } });
+    return forRole(after, user.role);
   });
 }
 
@@ -244,6 +275,24 @@ async function resolveItems(db: pg.PoolClient, items: NewSale["items"], role: Ro
       unitId: item.unitId ?? null,
     };
   });
+}
+
+/**
+ * Deja la factura de la SAT de una venta como corresponde: sin factura si la venta ya no es
+ * facturada; si no, sin enviar = se queda la que tenía, null = se quita, y una nueva se guarda
+ * revisando que esa serie y número no estén ya en otra venta.
+ */
+async function applySatInvoice(db: pg.PoolClient, saleId: number, isInvoiced: boolean, invoice: SatInvoiceInput | null | undefined) {
+  if (!isInvoiced || invoice === null) {
+    await salesRepository.deleteSatInvoice(db, saleId);
+    return;
+  }
+  if (!invoice) return;
+  const takenBy = await salesRepository.findSatInvoiceSale(db, invoice, saleId);
+  if (takenBy) {
+    throw new HttpError(409, `La factura serie ${invoice.series} No. ${invoice.number} ya está registrada en la venta #${takenBy}`);
+  }
+  await salesRepository.saveSatInvoice(db, saleId, invoice);
 }
 
 /** Lo mínimo de una línea para saber qué mueve en el inventario. */

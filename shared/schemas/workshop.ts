@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PAYMENT_METHODS, WORKSHOP_STATUSES, type Role, type WorkshopStatus } from "../constants";
-import { saleClientSchema } from "./sales";
+import { saleClientSchema, satInvoiceSchema } from "./sales";
 
 // Deben coincidir con el CHECK de workshop_order_items.kind en 001_esquema.sql
 export const WORKSHOP_ITEM_KINDS = ["servicio", "repuesto"] as const;
@@ -71,6 +71,8 @@ export const workshopCheckoutSchema = z
     isInvoiced: z.boolean(),
     client: saleClientSchema.optional(),
     observations: z.string().trim().max(300, "Máximo 300 caracteres").optional(),
+    /** Serie y número de la factura de la app de la SAT, si ya se emitió */
+    satInvoice: satInvoiceSchema.optional(),
   })
   .superRefine((checkout, ctx) => {
     if (checkout.isInvoiced && !checkout.client) {

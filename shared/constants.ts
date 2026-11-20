@@ -32,14 +32,17 @@ export type ExpenseArea = (typeof EXPENSE_AREAS)[number];
 export const CF_MAX_INVOICE_TOTAL = 2500;
 
 /*
- * ── Cambios TEMPORALES (pedidos el 11/11/2026) ─────────────────────────────
- * Para volver a como estaba, cambia los dos valores a true. No se borró nada:
- * el límite y el porcentaje de aviso siguen guardados en Configuración.
+ * ── Cambio TEMPORAL (pedido el 11/11/2026) ─────────────────────────────────
+ * Para volver a como estaba, cambia el valor a true. No se borró nada: el límite
+ * y el porcentaje de aviso siguen guardados en Configuración.
  */
 /** false = sin límite de facturas: solo se muestra cuántas se emitieron en el mes, sin alertas. */
 export const INVOICE_LIMIT_ENABLED = false;
-/** false = en Nueva venta y en el cobro de Taller no hay switch: todo se factura. */
-export const INVOICING_OPTIONAL = false;
+/**
+ * true = al registrar o editar una venta (y al cobrar en Taller) se elige si se factura o no.
+ * Estuvo en false del 11 al 20 de noviembre de 2026 (todo se facturaba); se regresó el 20/11.
+ */
+export const INVOICING_OPTIONAL = true;
 
 /** Cada cuánto las pantallas vuelven a pedir sus datos (RF 6.3). */
 export const POLL_INTERVAL_MS = 10_000;

@@ -49,6 +49,8 @@ export function SaleInvoice({
       clientAddress={sale.client?.address || "Ciudad"}
       total={sale.total}
       observations={sale.observations}
+      isInvoiced={sale.isInvoiced}
+      satInvoice={sale.satInvoice ?? null}
       onNewSale={onNewSale}
       onClose={onClose}
       closeLabel={closeLabel}
@@ -68,6 +70,8 @@ export default function InvoicePreview({
   clientAddress,
   total,
   observations,
+  isInvoiced = true,
+  satInvoice = null,
   onNewSale,
   onClose,
   closeLabel = "Volver al historial",
@@ -83,6 +87,9 @@ export default function InvoicePreview({
   clientAddress: string;
   total: number;
   observations?: string | null;
+  isInvoiced?: boolean;
+  /** Serie y número de la factura emitida en la app de la SAT */
+  satInvoice?: { series: string; number: string } | null;
   onNewSale?: () => void;
   onClose?: () => void;
   closeLabel?: string;
@@ -221,10 +228,14 @@ export default function InvoicePreview({
 
         <div className="fel-block" style={{ background: "var(--color-surface-soft)", border: "1px dashed var(--color-line)" }}>
           <div className="fel-title" style={{ color: "var(--color-muted)" }}>
-            <Icon name="file" size="sm" /> Facturación y Certificación SAT
+            <Icon name="file" size="sm" /> Factura SAT
           </div>
           <div style={{ fontSize: "12px", color: "var(--color-muted)", lineHeight: 1.5, marginTop: "6px" }}>
-            Documento interno de venta personalizado para SoloMotos. La certificación electrónica ante la SAT (FEL) queda pendiente para la siguiente fase según especificaciones de la empresa.
+            {!isInvoiced
+              ? "Venta sin factura. Documento interno de SoloMotos."
+              : satInvoice
+                ? <>Factura electrónica emitida en la SAT · Serie <strong>{satInvoice.series}</strong> · No. <strong>{satInvoice.number}</strong></>
+                : "Factura electrónica pendiente de registrar: se emite en la app de la SAT y su serie y número se anotan en el Historial."}
           </div>
         </div>
 

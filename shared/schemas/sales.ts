@@ -56,12 +56,38 @@ export const saleClientSchema = z
   });
 export type SaleClientInput = z.infer<typeof saleClientSchema>;
 
+/**
+ * Factura emitida en la app de la SAT (la tienda no usa certificador FEL): serie y número tal como
+ * salen en la factura. La serie se guarda en mayúsculas.
+ */
+export const satInvoiceSchema = z.object({
+  series: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .min(1, "Escribe la serie")
+    .max(20, "Máximo 20 caracteres")
+    .regex(/^[A-Z0-9-]+$/, "La serie solo lleva letras, números y guiones"),
+  number: z
+    .string()
+    .trim()
+    .min(1, "Escribe el número")
+    .max(20, "Máximo 20 dígitos")
+    .regex(/^\d+$/, "El número solo lleva dígitos"),
+});
+export type SatInvoiceInput = z.infer<typeof satInvoiceSchema>;
+
+/** Registrar, cambiar o quitar (null) la factura SAT de una venta ya guardada. */
+export const satInvoiceUpdateSchema = z.object({ satInvoice: satInvoiceSchema.nullable() });
+
 const saleFields = {
   sellerId: z.number({ message: "Elige el vendedor" }).int().positive("Elige el vendedor"),
   paymentMethod: z.enum(PAYMENT_METHODS, { message: "Elige el método de pago" }),
   isInvoiced: z.boolean(),
   client: saleClientSchema.optional(),
   observations: z.string().trim().max(500).optional(),
+  /** Opcional al registrar: si todavía no se emitió en la app de la SAT, se agrega después */
+  satInvoice: satInvoiceSchema.optional(),
 };
 
 function checkInvoiceClient(
@@ -93,7 +119,8 @@ export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 const editedSaleItemSchema = saleItemInputSchema.extend({ origin: z.enum(SALE_ITEM_ORIGINS).optional() });
 
 export const updateSaleSchema = z
-  .object({ ...saleFields, items: saleItemsOf(editedSaleItemSchema) })
+  // Al editar: sin enviar = se queda la que tenía; null = se quita
+  .object({ ...saleFields, satInvoice: satInvoiceSchema.nullable().optional(), items: saleItemsOf(editedSaleItemSchema) })
   .superRefine(checkInvoiceClient);
 export type UpdateSaleInput = z.infer<typeof updateSaleSchema>;
 
@@ -108,6 +135,11 @@ export const saleFiltersSchema = z.object({
     .transform((val) => (typeof val === "boolean" ? val : val === "true"))
     .optional(),
   hasPendingCommission: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .transform((val) => (typeof val === "boolean" ? val : val === "true"))
+    .optional(),
+  /** Facturadas que todavía no tienen la serie y el número de la SAT */
+  satPending: z
     .union([z.boolean(), z.enum(["true", "false"])])
     .transform((val) => (typeof val === "boolean" ? val : val === "true"))
     .optional(),
@@ -155,7 +187,11 @@ export type SaleSummary = {
   hasPendingCommission?: boolean;
   /** Su período ya se cerró: queda en solo lectura (RF 7.2) */
   isClosed: boolean;
+  /** Factura de la SAT registrada (null si no tiene) */
+  satInvoice: SatInvoice | null;
 };
+
+export type SatInvoice = { series: string; number: string };
 
 export type SaleItem = {
   id: number;
@@ -187,6 +223,8 @@ export type SaleDetail = {
   observations: string | null;
   total: number;
   items: SaleItem[];
+  /** Serie y número de la factura emitida en la app de la SAT (null = todavía no se registra) */
+  satInvoice: SatInvoice | null;
 };
 
 

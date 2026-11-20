@@ -692,6 +692,12 @@ body:has(.app-shell[data-dark]) { background: #111316; }
 .notif-empty .icon { color: var(--color-success); flex: none; }
 [data-dark] .notif-popover { border-color: var(--color-line); }
 
+/* ── factura de la SAT ───────────────────────────────────────────────────── */
+.sat-invoice-fields { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px dashed var(--color-line); border-radius: var(--radius-sm); }
+.sat-cell { margin-top: 4px; font-size: 11px; color: var(--color-muted); white-space: nowrap; }
+.sat-pending { color: #b45309; font-weight: 600; }
+[data-dark] .sat-pending { color: #fbbf24; }
+
 /* ── inventario ─────────────────────────────────────────────────────────── */
 .inventory-kpis { grid-template-columns: repeat(4, 1fr); }
 .inventory-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }

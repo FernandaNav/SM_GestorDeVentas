@@ -15,6 +15,7 @@ import { issuesToErrors } from "@/lib/validation";
 import ClientLookupHint from "@/pages/sales/ClientLookupHint";
 import { SaleInvoice } from "@/pages/sales/InvoicePreview";
 import ItemsTable, { inventoryProblem, type SaleItem } from "@/pages/sales/ItemsTable";
+import SatInvoiceFields, { readSatInvoice } from "@/pages/sales/SatInvoiceFields";
 import SaleSuccess from "@/pages/sales/SaleSuccess";
 
 const CHOOSE_SELLER = "Elige el vendedor";
@@ -41,6 +42,9 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
   // Se intentó poner CF con un total que lo impide: se avisa sin llenar los datos
   const [cfRejected, setCfRejected] = useState(false);
   const [observations, setObservations] = useState("");
+  // Factura emitida en la app de la SAT (opcional: se puede registrar después desde el Historial)
+  const [satSeries, setSatSeries] = useState("");
+  const [satNumber, setSatNumber] = useState("");
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [createdSale, setCreatedSale] = useState<SaleDetail | null>(null);
@@ -92,6 +96,8 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     setClientAddress("");
     setCfRejected(false);
     setObservations("");
+    setSatSeries("");
+    setSatNumber("");
     setIsConfirmed(false);
     setCreatedSale(null);
     clearErrors();
@@ -175,6 +181,7 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
       isInvoiced,
       client: clientPayload,
       observations: observations.trim() || undefined,
+      satInvoice: isInvoiced ? readSatInvoice(satSeries, satNumber).value : undefined,
       items: saleItems,
     };
   };
@@ -185,6 +192,14 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
     if (!selectedSeller) {
       setFieldErrors({ sellerId: CHOOSE_SELLER });
       setFormError(sellers.length > 0 ? CHOOSE_SELLER : "No hay vendedores activos registrados en el sistema.");
+      return;
+    }
+
+    // Serie sin número (o al revés) se avisa aquí: si no, se perdería en silencio
+    const sat = readSatInvoice(satSeries, satNumber);
+    if (isInvoiced && sat.errors) {
+      setFieldErrors(sat.errors);
+      setFormError(Object.values(sat.errors)[0]);
       return;
     }
 
@@ -369,6 +384,9 @@ export default function NewSale({ role, onHistory }: { role: Role; onHistory: ()
                     onChange={onEdit(setClientAddress)}
                     placeholder="Dirección fiscal para factura"
                   />
+                </div>
+                <div className="span-two">
+                  <SatInvoiceFields series={satSeries} number={satNumber} onSeries={setSatSeries} onNumber={setSatNumber} errors={fieldErrors} />
                 </div>
                 <div className="span-two">
                   <TextArea
