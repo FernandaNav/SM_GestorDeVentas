@@ -888,3 +888,84 @@ tr.row-muted td { opacity: .6; }
 .category-add .field-label { margin-bottom: 8px; }
 .category-add-row { display: grid; grid-template-columns: 1fr 170px auto; gap: 12px; align-items: start; }
 @media (max-width: 1240px) { .category-add-row { grid-template-columns: 1fr; } }
+
+/* ══ Responsive: tablet y celular ════════════════════════════════════════════
+   En pantallas angostas el menú lateral es un cajón que se abre con el botón ☰
+   del encabezado, y las cuadrículas pasan a una o dos columnas. */
+.menu-button { display: none; }
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  /* Menú como cajón: fuera de la pantalla hasta que se abre */
+  .app-shell .sidebar, .app-shell.sidebar-collapsed .sidebar { width: 268px; padding: 24px 18px 20px; transform: translateX(-100%); transition: transform .25s ease; z-index: 80; }
+  .app-shell.menu-open .sidebar { transform: none; box-shadow: 0 0 60px rgb(0 0 0 / 35%); }
+  .app-shell.menu-open .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 75; background: rgb(10 12 17 / 45%); }
+  .sidebar-toggle { display: none; }
+  /* En el cajón siempre van los nombres, aunque en computadora se haya ocultado el menú */
+  .app-shell.sidebar-collapsed .brand { align-items: flex-start; padding: 0 10px 30px; }
+  .app-shell.sidebar-collapsed .brand .brand-full { display: flex; }
+  .app-shell.sidebar-collapsed .brand .brand-compact { display: none; }
+  .app-shell.sidebar-collapsed .nav-item { justify-content: flex-start; padding: 12px 14px; }
+  .app-shell.sidebar-collapsed .nav-item span { display: inline; }
+  .app-shell.sidebar-collapsed .sidebar-help { justify-content: flex-start; padding: 20px 8px 4px; }
+  .app-shell.sidebar-collapsed .sidebar-help-text { display: block; }
+  .app-shell .app-main, .app-shell.sidebar-collapsed .app-main { width: 100%; margin-left: 0; }
+
+  .menu-button { display: grid; flex: none; }
+  .topbar { height: 64px; padding: 0 16px; gap: 10px; }
+  .topbar-heading { flex: 1; }
+  .content { padding: 20px 16px 36px; }
+
+  .kpi-grid, .inventory-kpis { grid-template-columns: repeat(2, 1fr); }
+  .mini-kpis, .comm-kpis, .payment-totals, .summary-kpis, .employee-workshop-stats { grid-template-columns: repeat(2, 1fr); }
+  /* Cierre: el título arriba y el rango de fechas debajo */
+  .closing-hero { flex-direction: column; align-items: stretch; gap: 16px; }
+  .hero-row, .card-heading { flex-wrap: wrap; }
+  .form-grid.three { grid-template-columns: 1fr 1fr; }
+  .form-grid.three .span-three { grid-column: 1 / -1; }
+  /* Estadísticas: en columna, cada filtro mide lo que su contenido (antes se estiraba 200px de alto) */
+  .report-filters > .field { flex: none; min-width: 0; }
+  /* Pestañas que no caben: se deslizan de lado en vez de salirse de la pantalla */
+  .segmented-wrap { overflow-x: auto; scrollbar-width: none; }
+  .segmented-wrap::-webkit-scrollbar { display: none; }
+  .closing-range { flex-wrap: wrap; }
+  /* El ancho flexible va en el campo; el calendario adentro solo mide lo que su botón (en columna el 240px se volvía alto) */
+  .closing-range > .field, .history-filters > .field:has(.picker) { flex: 1 1 240px; min-width: 0; }
+  .closing-range .picker, .history-filters .picker { min-width: 0; flex: none; }
+  .personal-filters .filter-group + .filter-group { padding-left: 0; border-left: 0; }
+
+  /* Login: la parte oscura queda como franja arriba con el logo y el formulario debajo */
+  .login-page { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .login-art { padding: 28px 24px; min-height: 150px; justify-content: center; }
+  .login-art::before { display: none; }
+  .login-message, .login-city { display: none; }
+  .login-brand .brand-logo { width: 220px; }
+  .login-panel { padding: 32px 24px; align-items: start; }
+}
+
+@media (max-width: 600px) {
+  .date-pill { display: none; }
+  .top-actions { gap: 6px; }
+  .page-title { font-size: 16px; }
+  .section-title { font-size: 19px; }
+  .content { padding: 16px 12px 32px; }
+  .kpi-grid, .inventory-kpis { grid-template-columns: 1fr; }
+  .comm-kpis, .payment-totals, .summary-kpis { grid-template-columns: 1fr; }
+  .order-grid { grid-template-columns: 1fr; }
+  /* Taller: pestañas y buscador uno debajo del otro, a todo lo ancho */
+  .workshop-header > * { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+  .form-grid.two, .form-grid.three { grid-template-columns: 1fr; }
+  /* Si no, un campo que abarca 2 columnas crea una segunda columna angosta */
+  .form-grid .span-two, .form-grid .span-three { grid-column: 1 / -1; }
+  .filter-bar, .client-id-row { flex-wrap: wrap; }
+  .history-filters, .inventory-filters { padding: 14px; }
+  .history-filters .field, .history-filters .select-shell, .inventory-filters .field, .inventory-filters .select-shell { min-width: 0; width: 100%; flex: 1 1 100%; }
+  .unit-row { grid-template-columns: 24px 1fr 38px; }
+  .unit-row > :nth-child(3) { grid-column: 2; }
+  .modal-backdrop { padding: 10px; }
+  .modal-body { padding: 18px; }
+  .modal-actions { padding: 12px 18px; }
+  .card { padding: 16px; }
+  .login-panel { padding: 24px 12px; }
+  .login-card.card { padding: 8px; }
+}
