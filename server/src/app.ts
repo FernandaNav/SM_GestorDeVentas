@@ -49,8 +49,12 @@ app.use("/api", (_req, res) => {
 
 // En producción el mismo servidor entrega el frontend compilado (pnpm build),
 // así las dos estaciones solo necesitan abrir http://<servidor>:<API_PORT>.
-const distDir = path.resolve(process.cwd(), "dist");
-if (existsSync(distDir)) {
+// dist/ se busca en la carpeta desde donde se arranca y, si no está, junto al servidor
+// compilado (dist-server/index.cjs): un hosting puede arrancar la app desde otra carpeta.
+const distCandidates = [path.resolve(process.cwd(), "dist")];
+if (typeof __dirname !== "undefined") distCandidates.push(path.resolve(__dirname, "..", "dist"));
+const distDir = distCandidates.find((dir) => existsSync(path.join(dir, "index.html")));
+if (distDir) {
   app.use(express.static(distDir));
   app.get("/{*path}", (_req, res) => res.sendFile(path.join(distDir, "index.html")));
 }
