@@ -7,7 +7,7 @@ import { NAV_ITEMS } from "./navigation";
 import NotificationBell from "./NotificationBell";
 import { useTheme } from "./theme";
 
-export default function Header({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
+export default function Header({ user, onLogout, onMenu }: { user: SessionUser; onLogout: () => void; onMenu: () => void }) {
   const { dark, setDark } = useTheme();
   const { pathname } = useLocation();
   const today = useCurrentDate();
@@ -16,6 +16,10 @@ export default function Header({ user, onLogout }: { user: SessionUser; onLogout
 
   return (
     <header className="topbar">
+      {/* Solo se ve en celular y tablet, donde el menú lateral se esconde */}
+      <button type="button" className="icon-button menu-button" onClick={onMenu} aria-label="Abrir menú" title="Menú">
+        <Icon name="menu" size="sm" />
+      </button>
       <div className="topbar-heading">
         <div className="page-title" title={title}>
           {title}
