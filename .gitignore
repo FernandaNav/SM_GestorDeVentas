@@ -4,6 +4,7 @@ node_modules/
 
 # Production and build outputs
 dist/
+dist-server/
 dist-ssr/
 build/
 out/
